@@ -126,7 +126,7 @@ class SLICSuperPixel(object):
                 self.centers[cen_idx] /= np.sum(idx)
         self.clusters = clusters
 
-    def plot(self):
+    def find_contours(self):
         contours = []
         dx8 = [-1, -1, 0, 1, 1, 1, 0, -1]
         dy8 = [0, -1, -1, -1, 0, 1, 1, 1]
@@ -145,13 +145,19 @@ class SLICSuperPixel(object):
                 if nr_p >= 2:
                     contours.append([j, i])
                     istaken[j, i] = 1
+        return contours
 
+    def plot(self):
+        contours = self.find_contours()
         for cont in contours:
             self.image_rgb[cont[0], cont[1]] = [0, 0, 255]
 
         cv2.imshow('contours', self.image_rgb)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+
+    def get_clusters(self):
+        return self.clusters
 
 
 if __name__ == '__main__':

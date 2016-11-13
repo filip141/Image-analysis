@@ -4,7 +4,11 @@
       <w>clust</w>
       <w>cntr</w>
       <w>eucl</w>
+      <w>findset</w>
       <w>istaken</w>
+      <w>kruskal</w>
+      <w>slic</w>
+      <w>vert</w>
     </words>
   </dictionary>
 </component>
