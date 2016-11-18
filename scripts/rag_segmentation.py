@@ -1,11 +1,15 @@
+import copy
+
 import cv2
 import numpy as np
 from slic import SLICSuperPixel
+from metric_methods import euclidean_dist
 
 
 class RAGSegmentation(object):
 
-    def __init__(self, image, slic_clust_num=200, slic_cw=15, slic_steps=10):
+    def __init__(self, image, slic_clust_num=200, slic_cw=15, slic_steps=10, median_blur=7):
+        image = cv2.medianBlur(image, median_blur)
         self.image_lab = cv2.cvtColor(image, cv2.COLOR_BGR2Lab)
         self.image_mean = image.copy()
         self.image = image
@@ -65,21 +69,19 @@ class RAGSegmentation(object):
 
                 around = clusters[cord_x_l: cord_x_r, cord_y_l: cord_y_r]
                 ng_set.update(set(around[around != clust_idx].flatten()))
+            ng_set.discard(-1)
             clust_ng[clust_idx] = ng_set
         return clust_ng
 
     @staticmethod
-    def euclidean_dist(col_one, col_two):
-        return np.sqrt((col_one[0] - col_two[0])**2 + (col_one[1] - col_two[1])**2 + (col_one[2] - col_two[2])**2)
-
-    def find_edges(self, ng_dict, clust_col):
+    def find_edges(ng_dict, clust_col):
         edges_dict = {}
         for curr_region, ng_set in ng_dict.items():
             ng_edge = []
             for ng_reg in ng_set:
                 curr_region_col = np.asarray(clust_col[curr_region], dtype="int32")
                 ng_reg_col = np.asarray(clust_col[ng_reg], dtype="int32")
-                dist = self.euclidean_dist(curr_region_col, ng_reg_col)
+                dist = euclidean_dist(curr_region_col, ng_reg_col)
                 ng_edge.append((ng_reg, dist))
             edges_dict[curr_region] = ng_edge
         return edges_dict
@@ -127,10 +129,25 @@ class RAGSegmentation(object):
         vertex_list.pop(index2)
         return vertex_list
 
-    def concat_similar_regs(self, edges_dict, clust_col, clusters, image, thresh=40):
+    def kruskal_alg(self, edges_list, weight_list, vertex_list):
+        vertex_list = copy.deepcopy(vertex_list)
         edges_mst = []
         weight_mst = []
+        edge_idx = 0
+        while len(vertex_list) > 1 and edge_idx < len(edges_list):
+            ver_idx_one = self.__findset(edges_list[edge_idx][0], vertex_list)
+            ver_idx_two = self.__findset(edges_list[edge_idx][1], vertex_list)
+            if ver_idx_one != ver_idx_two:
+                edges_mst.append(edges_list[edge_idx])
+                weight_mst.append(weight_list[edge_idx])
+                vertex_list = self.__union(edges_list[edge_idx][0], edges_list[edge_idx][1], vertex_list)
+            edge_idx += 1
+        return edges_mst, weight_mst, vertex_list
+
+    def concat_similar_regs(self, edges_dict, clusters, c_factor=2.0):
+
         # Kruskal algorithm
+        new_clusters = copy.deepcopy(clusters)
         edges_list, weight_list = self.__convert2arrays(edges_dict)
         # make vertex list
         vertex_list = edges_dict.keys()
@@ -139,43 +156,57 @@ class RAGSegmentation(object):
 
         # sort edges
         edges_list, weight_list = self.__sort_edges(edges_list, weight_list)
-        edge_idx = 0
-        while len(vertex_list) > 1 and edge_idx < len(edges_list):
-            if self.__findset(edges_list[edge_idx][0], vertex_list) != self.__findset(edges_list[edge_idx][1],
-                                                                                      vertex_list):
-                edges_mst.append(edges_list[edge_idx])
-                weight_mst.append(weight_list[edge_idx])
-                vertex_list = self.__union(edges_list[edge_idx][0], edges_list[edge_idx][1], vertex_list)
-            edge_idx += 1
-        vertex_mst = vertex_list[0]
-        print "xx"
-        # for curr_region, ng_set in edges_dict.items():
-        #     col_mean = clust_col[curr_region]
-        #     ng_mask = clusters == curr_region
-        #     ng_list = []
-        #     col_counter = 1
-        #     for ng_reg, ng_dist in ng_set:
-        #         if ng_dist < thresh:
-        #             col_mean += clust_col[ng_reg]
-        #             ng_mask = np.logical_or(ng_mask, clusters == ng_reg)
-        #             ng_list.append(ng_reg)
-        #             col_counter += 1
-        #     col_mean /= col_counter
-        #     image[ng_mask] = col_mean
-        # return image
+        edge_mst, weight_mst, vertex_mst = self.kruskal_alg(edges_list, weight_list, vertex_list)
 
-    def plot_regions(self, clusters):
+        mst_mean = np.mean(weight_mst)
+        mst_std = np.std(weight_mst)
+
+        new_edges = []
+        new_weight = []
+        for edge_idx in xrange(len(edge_mst)):
+            if weight_mst[edge_idx] < mst_mean + c_factor * mst_std:
+                new_edges.append(edge_mst[edge_idx])
+                new_weight.append(weight_mst[edge_idx])
+
+        # Calculate new tree
+        edge_mst, weight_mst, vertex_mst = self.kruskal_alg(new_edges, new_weight, vertex_list)
+
+        new_cluster = 1
+        for tree in vertex_mst:
+            ng_mask = np.zeros(new_clusters.shape, dtype=bool)
+            for vertex in tree:
+                ng_mask = np.logical_or(ng_mask, new_clusters == vertex)
+            new_clusters[ng_mask] = new_cluster
+            new_cluster += 1
+
+        return new_clusters, edge_mst, weight_mst, vertex_mst
+
+    def plot_regions(self, clusters, edge_mst):
+        reg_points = {}
         for clust_idx in xrange(self.slic_clust_num):
             ng_mask = clusters == clust_idx
-            c = max(self.image[ng_mask], key=cv2.contourArea)
-            ((x, y), radius) = cv2.minEnclosingCircle(c)
-            M = cv2.moments(c)
-            center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+            cluster_idx = np.transpose(np.nonzero(ng_mask))
+            if cluster_idx.size != 0:
+                cntr = cv2.findContours((1 * ng_mask).astype(np.uint8).copy(),
+                                        cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
+                M = cv2.moments(cntr)
+                c_point = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+                reg_points[clust_idx] = c_point
+                cv2.circle(self.image_mean, c_point, 5, (0, 0, 255), -1)
+                cv2.putText(self.image_mean, str(clust_idx), c_point, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+
+        for edge in edge_mst:
+            point_one = edge[0]
+            point_two = edge[1]
+            cv2.line(self.image_mean, reg_points[point_one], reg_points[point_two], (255, 0, 0), 1)
 
 if __name__ == '__main__':
-    test_image = cv2.imread('../data/beach.jpg', 1)
-    rag = RAGSegmentation(test_image)
+    test_image = cv2.imread('../data/fox.png', 1)
+    test_image_2 = test_image.copy()
+    rag = RAGSegmentation(test_image, slic_clust_num=200, slic_cw=15, median_blur=7)
     t_clusters = rag.run_slic()
+    # rag.slic_sp.plot()
+
     # take mean
     clust_col_rgb = rag.slic_mean_rgb(t_clusters)
     clust_col_t = rag.slic_mean_lab(t_clusters)
@@ -183,8 +214,13 @@ if __name__ == '__main__':
     cn = rag.neighbours_regions(t_clusters)
     ed = rag.find_edges(cn, clust_col_t)
 
-    rag.plot_regions(t_clusters)
-    image_cct = rag.concat_similar_regs(ed, clust_col_rgb, t_clusters, test_image.copy())
-    cv2.imshow('contours', rag.image_mean)
+    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.2)
+    n_clusters = concat_params[0]
+    edge_mst = concat_params[1]
+    clust_col_rgb = rag.slic_mean_rgb(n_clusters)
+    # rag.plot_regions(t_clusters, edge_mst)
+
+    cv2.imshow('contours1', rag.image_mean)
+    cv2.imshow('contours2', test_image_2)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
