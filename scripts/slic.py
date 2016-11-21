@@ -161,7 +161,7 @@ class SLICSuperPixel(object):
 
 
 if __name__ == '__main__':
-    test_image = cv2.imread('../data/lena.jpg', 1)
+    test_image = cv2.imread('../data/car.jpg', 1)
     slic_sp = SLICSuperPixel(test_image, 200, colour_weight=15)
     slic_sp.run()
     slic_sp.plot()
