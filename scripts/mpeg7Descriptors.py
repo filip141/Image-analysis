@@ -7,6 +7,8 @@ from metric_methods import euclidean_dist
 
 sys.setrecursionlimit(20000)
 
+default_wres = 320
+
 
 class MPEG7Descriptors(object):
 
@@ -95,17 +97,15 @@ class MPEG7Descriptors(object):
             dc_percentage = len(cent_points) / float(len(segment))
 
             # Find spatial coherence
-            counter = 0
-            reg_in_cent = {}
-            cent_idxs = map(lambda c_idx: tuple(c_idx), cent_idxs)
+            reg_in_cent = []
+            cent_idxs = [tuple(c_idx) for c_idx in cent_idxs]
             while len(cent_idxs) > 0:
                 visited_edges = []
                 all_edges = []
                 self.get_px_ngs([cent_idxs[0]], visited_edges, cent_idxs, all_edges)
-                reg_in_cent[counter] = visited_edges
+                reg_in_cent.append(visited_edges)
                 cent_idxs = list(set(cent_idxs) - set(visited_edges))
-                counter += 1
-            spatial_homo = map(lambda ric: len(ric), reg_in_cent.values())
+            spatial_homo = [len(ric) for ric in reg_in_cent]
             spatial_coh = max(spatial_homo) / float(len(cent_points))
             dcd_features[cnt_idx] = [dc_mean, dc_var, dc_percentage, spatial_coh]
         return dcd_features
@@ -121,9 +121,12 @@ class MPEG7Descriptors(object):
         return dcd_per_seg
 
 if __name__ == '__main__':
-    test_image = cv2.imread('../data/fox.png', 1)
-    test_image_2 = test_image.copy()
-    rag = RAGSegmentation(test_image, slic_clust_num=200, slic_cw=15, median_blur=7)
+    test_image = cv2.imread('../data/road.jpg', 1)
+    im_res = test_image.shape[:-1]
+    factor = im_res[0] / float(im_res[1])
+    n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
+    test_image_2 = n_image.copy()
+    rag = RAGSegmentation(n_image, slic_clust_num=200, slic_cw=15, median_blur=7)
     t_clusters = rag.run_slic()
     # rag.slic_sp.plot()
 
@@ -134,18 +137,16 @@ if __name__ == '__main__':
     cn = rag.neighbours_regions(t_clusters)
     ed = rag.find_edges(cn, clust_col_t)
 
-    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.4)
+    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.22)
     n_clusters = concat_params[0]
     edge_mst = concat_params[1]
     clust_col_rgb = rag.slic_mean_rgb(n_clusters)
     rag.plot_regions(t_clusters, edge_mst)
-    mpeg = MPEG7Descriptors(n_clusters, test_image)
+    mpeg = MPEG7Descriptors(n_clusters, n_image)
     dcd = mpeg.find_dominant_colours(max_cols=8)
     print "aa"
 
-    # mpeg.find_dominant_colours(8)
-    #
-    # cv2.imshow('contours1', rag.image_mean)
-    # cv2.imshow('contours2', test_image_2)
+    # cv2.imshow('contours1', n_image)
+    # cv2.imshow('contours2', rag.image)
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()

@@ -158,12 +158,13 @@ class RAGSegmentation(object):
         edges_list, weight_list = self.__sort_edges(edges_list, weight_list)
         edge_mst, weight_mst, vertex_mst = self.kruskal_alg(edges_list, weight_list, vertex_list)
 
-        mst_mean = np.mean(weight_mst)
-        mst_std = np.std(weight_mst)
-
         new_edges = []
         new_weight = []
         for edge_idx in xrange(len(edge_mst)):
+            weight_mst_copy = copy.deepcopy(weight_mst)
+            weight_mst_copy.remove(weight_mst_copy[edge_idx])
+            mst_mean = np.mean(weight_mst_copy)
+            mst_std = np.std(weight_mst_copy)
             if weight_mst[edge_idx] < mst_mean + c_factor * mst_std:
                 new_edges.append(edge_mst[edge_idx])
                 new_weight.append(weight_mst[edge_idx])
@@ -201,7 +202,7 @@ class RAGSegmentation(object):
             cv2.line(self.image_mean, reg_points[point_one], reg_points[point_two], (255, 0, 0), 1)
 
 if __name__ == '__main__':
-    test_image = cv2.imread('../data/kosciol.jpg', 1)
+    test_image = cv2.imread('../data/road.jpg', 1)
     test_image_2 = test_image.copy()
     rag = RAGSegmentation(test_image, slic_clust_num=200, slic_cw=15, median_blur=7)
     t_clusters = rag.run_slic()
@@ -214,7 +215,7 @@ if __name__ == '__main__':
     cn = rag.neighbours_regions(t_clusters)
     ed = rag.find_edges(cn, clust_col_t)
 
-    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.5)
+    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.22)
     n_clusters = concat_params[0]
     edge_mst = concat_params[1]
     clust_col_rgb = rag.slic_mean_rgb(n_clusters)
