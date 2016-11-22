@@ -110,7 +110,7 @@ class MPEG7Descriptors(object):
             dcd_features[cnt_idx] = [dc_mean, dc_var, dc_percentage, spatial_coh]
         return dcd_features
 
-    def find_dominant_colours(self, max_cols):
+    def mpeg7_dominant_colours(self, max_cols):
         dcd_per_seg = {}
         for segment_idx in self.segments:
             idx = (self.clusters == segment_idx)
@@ -119,6 +119,106 @@ class MPEG7Descriptors(object):
             dc = self.dominant_colour(max_cols, segment_points, seg_idxs)
             dcd_per_seg[segment_idx] = dc
         return dcd_per_seg
+
+    @staticmethod
+    def cart2radial(image):
+        width, height = image.shape[:-1]
+        blank_image = np.zeros((width, height, 3), np.uint8)
+        width, height = width - 1, height - 1
+        max_rad = np.sqrt(width**2 + height**2) / 2.0
+        r_scale = max_rad / width
+        ang_scale = (2 * np.pi) / height
+        for y_a in xrange(0, height):
+            for x_a in range(0, width):
+                angle = y_a * ang_scale
+                radius = x_a * r_scale
+
+                polar_x = radius * np.cos(angle) + width / 2.0
+                polar_y = radius * np.sin(angle) + height / 2.0
+
+                x_r = [int(polar_x), int(polar_x) + 2]
+                y_r = [int(polar_y), int(polar_y) + 2]
+
+                x_r[0] = x_r[0] if x_r[0] >= 0 else 0
+                x_r[1] = x_r[1] if x_r[1] <= width else width
+                y_r[0] = y_r[0] if y_r[0] >= 0 else 0
+                y_r[1] = y_r[1] if y_r[1] <= height else height
+
+                img_col = []
+                image_square = image[x_r[0]:x_r[1], y_r[0]:y_r[1]]
+                for im_px in image_square:
+                    img_col += im_px.tolist()
+                if len(img_col) == 0:
+                    continue
+                new_col = np.sum(img_col, axis=0) / len(img_col)
+                blank_image[x_a, y_a] = new_col
+        return blank_image
+
+    @staticmethod
+    def polar2cart(pol_image, one_dim=False):
+        if one_dim:
+            width, height = pol_image.shape
+        else:
+            width, height = pol_image.shape[:-1]
+
+        blank_image = np.zeros((width, height, 3), np.uint8)
+        width, height = width - 1, height - 1
+        max_rad = np.sqrt(width**2 + height**2) / 2.0
+        r_scale = max_rad / width
+        ang_scale = (2 * np.pi) / height
+        for y_a in xrange(0, height):
+            for x_a in range(0, width):
+                dy = y_a - height / 2
+                dx = x_a - width / 2
+
+                angle = np.arctan2(dy, dx) % (2 * np.pi)
+                radius = np.sqrt(dx**2 + dy**2)
+                image_y = angle / ang_scale
+                image_x = radius / r_scale
+                x_r = [int(image_x), int(image_x) + 2]
+                y_r = [int(image_y), int(image_y) + 2]
+
+                x_r[0] = x_r[0] if x_r[0] >= 0 else 0
+                x_r[1] = x_r[1] if x_r[1] <= width else width
+                y_r[0] = y_r[0] if y_r[0] >= 0 else 0
+                y_r[1] = y_r[1] if y_r[1] <= height else height
+
+                img_col = []
+                image_square = pol_image[x_r[0]:x_r[1], y_r[0]:y_r[1]]
+                for im_px in image_square:
+                    img_col += im_px.tolist()
+                if len(img_col) == 0:
+                    continue
+                new_col = np.sum(img_col, axis=0) / len(img_col)
+                blank_image[x_a, y_a] = new_col
+        return blank_image
+
+    def art_transform(self, image):
+        coeffs_n, coeffs_m = (3, 12)
+        height, width = image.shape[:-1]
+        ang_scale = (2 * np.pi) / height
+        r_scale = 1 / float(width)
+        polar_image = cv2.cvtColor(self.cart2radial(image), cv2.COLOR_BGR2GRAY)
+        art_coeffs = np.zeros((coeffs_n, coeffs_m), dtype=np.complex128)
+        angle_mat = ang_scale * (np.ones((width, 1)) * np.arange(height)).transpose()
+        radius_mat = r_scale * np.arange(width)
+        for n in xrange(coeffs_n):
+            for m in xrange(coeffs_m):
+                a_m = (1 / (2 * np.pi)) * np.exp(1j * m * angle_mat)
+                if n == 0:
+                    r_n = np.ones((1, width))
+                else:
+                    r_n = 2 * np.cos(np.pi * n * radius_mat)
+                r_n = r_n * np.eye(width)
+                v_base = np.dot(a_m, r_n)
+                image_mult = polar_image * v_base * r_scale * (np.ones((height, 1)) * np.arange(width))
+                high_sum = np.sum(image_mult, axis=1, dtype=np.complex128) * r_scale
+                art_coeff = np.sum(high_sum, dtype=np.complex128) * ang_scale
+                art_coeffs[n, m] = art_coeff
+        return art_coeffs
+
+    def mpeg7_region_shape(self, image):
+        return self.art_transform(image)
 
 if __name__ == '__main__':
     test_image = cv2.imread('../data/road.jpg', 1)
@@ -143,10 +243,15 @@ if __name__ == '__main__':
     clust_col_rgb = rag.slic_mean_rgb(n_clusters)
     rag.plot_regions(t_clusters, edge_mst)
     mpeg = MPEG7Descriptors(n_clusters, n_image)
-    dcd = mpeg.find_dominant_colours(max_cols=8)
+    nn = mpeg.mpeg7_region_shape(n_image)
+    # nn = mpeg.polar2cart(nn)
+    # nn = mpeg.cart2radial(n_image)
+    # nn = mpeg.polar2cart(nn)
     print "aa"
+    # dcd = mpeg.find_dominant_colours(max_cols=8)
+    # print "aa"
 
-    # cv2.imshow('contours1', n_image)
-    # cv2.imshow('contours2', rag.image)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    cv2.imshow('contours1', n_image)
+    cv2.imshow('contours2', nn)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
