@@ -1,3 +1,8 @@
+import scipy.misc
+import scipy.fftpack
+import scipy.interpolate
+import scipy.ndimage.interpolation
+
 import cv2
 import sys
 import random
@@ -14,6 +19,7 @@ class MPEG7Descriptors(object):
 
     def __init__(self, clusters, image):
         self.image = cv2.cvtColor(image, cv2.COLOR_BGR2Lab)
+        self.image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         self.clusters = clusters
         self.segments = set(clusters.flatten())
         self.segments.discard(-1)
@@ -121,9 +127,14 @@ class MPEG7Descriptors(object):
         return dcd_per_seg
 
     @staticmethod
-    def cart2radial(image):
-        width, height = image.shape[:-1]
-        blank_image = np.zeros((width, height, 3), np.uint8)
+    def cart2radial(image, one_dim=False, interp=True, dtype=np.uint8):
+        if one_dim:
+            width, height = image.shape
+            blank_image = np.zeros((width, height), dtype)
+        else:
+            width, height = image.shape[:-1]
+            blank_image = np.zeros((width, height, 3), dtype)
+
         width, height = width - 1, height - 1
         max_rad = np.sqrt(width**2 + height**2) / 2.0
         r_scale = max_rad / width
@@ -136,32 +147,38 @@ class MPEG7Descriptors(object):
                 polar_x = radius * np.cos(angle) + width / 2.0
                 polar_y = radius * np.sin(angle) + height / 2.0
 
-                x_r = [int(polar_x), int(polar_x) + 2]
-                y_r = [int(polar_y), int(polar_y) + 2]
+                if interp:
+                    x_r = [int(polar_x), int(polar_x) + 2]
+                    y_r = [int(polar_y), int(polar_y) + 2]
 
-                x_r[0] = x_r[0] if x_r[0] >= 0 else 0
-                x_r[1] = x_r[1] if x_r[1] <= width else width
-                y_r[0] = y_r[0] if y_r[0] >= 0 else 0
-                y_r[1] = y_r[1] if y_r[1] <= height else height
+                    x_r[0] = x_r[0] if x_r[0] >= 0 else 0
+                    x_r[1] = x_r[1] if x_r[1] <= width else width
+                    y_r[0] = y_r[0] if y_r[0] >= 0 else 0
+                    y_r[1] = y_r[1] if y_r[1] <= height else height
 
-                img_col = []
-                image_square = image[x_r[0]:x_r[1], y_r[0]:y_r[1]]
-                for im_px in image_square:
-                    img_col += im_px.tolist()
-                if len(img_col) == 0:
-                    continue
-                new_col = np.sum(img_col, axis=0) / len(img_col)
+                    img_col = []
+                    image_square = image[x_r[0]:x_r[1], y_r[0]:y_r[1]]
+                    for im_px in image_square:
+                        img_col += im_px.tolist()
+                    if len(img_col) == 0:
+                        continue
+                    new_col = np.sum(img_col, axis=0) / len(img_col)
+                else:
+                    new_px = [int(polar_x), int(polar_y)]
+                    new_px[0] = new_px[0] if new_px[0] <= width else width
+                    new_px[1] = new_px[1] if new_px[1] <= height else height
+                    new_col = image[new_px[0], new_px[1]]
                 blank_image[x_a, y_a] = new_col
         return blank_image
 
     @staticmethod
-    def polar2cart(pol_image, one_dim=False):
+    def polar2cart(pol_image, one_dim=False, interp=True, dtype=np.uint8):
         if one_dim:
             width, height = pol_image.shape
+            blank_image = np.zeros((width, height), dtype)
         else:
             width, height = pol_image.shape[:-1]
-
-        blank_image = np.zeros((width, height, 3), np.uint8)
+            blank_image = np.zeros((width, height, 3), dtype)
         width, height = width - 1, height - 1
         max_rad = np.sqrt(width**2 + height**2) / 2.0
         r_scale = max_rad / width
@@ -175,21 +192,27 @@ class MPEG7Descriptors(object):
                 radius = np.sqrt(dx**2 + dy**2)
                 image_y = angle / ang_scale
                 image_x = radius / r_scale
-                x_r = [int(image_x), int(image_x) + 2]
-                y_r = [int(image_y), int(image_y) + 2]
+                if interp:
+                    x_r = [int(image_x), int(image_x) + 2]
+                    y_r = [int(image_y), int(image_y) + 2]
 
-                x_r[0] = x_r[0] if x_r[0] >= 0 else 0
-                x_r[1] = x_r[1] if x_r[1] <= width else width
-                y_r[0] = y_r[0] if y_r[0] >= 0 else 0
-                y_r[1] = y_r[1] if y_r[1] <= height else height
+                    x_r[0] = x_r[0] if x_r[0] >= 0 else 0
+                    x_r[1] = x_r[1] if x_r[1] <= width else width
+                    y_r[0] = y_r[0] if y_r[0] >= 0 else 0
+                    y_r[1] = y_r[1] if y_r[1] <= height else height
 
-                img_col = []
-                image_square = pol_image[x_r[0]:x_r[1], y_r[0]:y_r[1]]
-                for im_px in image_square:
-                    img_col += im_px.tolist()
-                if len(img_col) == 0:
-                    continue
-                new_col = np.sum(img_col, axis=0) / len(img_col)
+                    img_col = []
+                    image_square = pol_image[x_r[0]:x_r[1], y_r[0]:y_r[1]]
+                    for im_px in image_square:
+                        img_col += im_px.tolist()
+                    if len(img_col) == 0:
+                        continue
+                    new_col = np.sum(img_col, axis=0) / len(img_col)
+                else:
+                    new_px = [int(image_x), int(image_y)]
+                    new_px[0] = new_px[0] if new_px[0] <= width else width
+                    new_px[1] = new_px[1] if new_px[1] <= height else height
+                    new_col = pol_image[new_px[0], new_px[1]]
                 blank_image[x_a, y_a] = new_col
         return blank_image
 
@@ -220,8 +243,105 @@ class MPEG7Descriptors(object):
     def mpeg7_region_shape(self, image):
         return self.art_transform(image)
 
+    def mpeg7_homogeneus_texture(self):
+        for segment_idx in self.segments:
+            new_image = self.image_gray.copy()
+            for negative_idx in self.segments:
+                if negative_idx != segment_idx:
+                    neg_seg = (self.clusters == negative_idx)
+                    # new_image[neg_seg] = 0
+            self.radon_transform(new_image)
+            print "aa"
+
+    @staticmethod
+    def radon_transform(image):
+        # Convert to gray scale
+        c_num = 259
+        image = np.asarray(image, dtype=np.float32) / 255.0
+        width, height = image.shape
+        if height > width:
+            add_new = np.zeros((height - width, height))
+            image = np.concatenate((image, add_new), axis=0)
+        else:
+            add_new = np.zeros((width, width - height))
+            image = np.concatenate((image, add_new), axis=1)
+        fourier_res = height
+        # Compute Radon Transform
+        sinogram = np.array([np.sum(
+            scipy.ndimage.interpolation.rotate(
+                image,
+                (np.pi * per) / c_num,
+                reshape=False,
+                mode='constant',
+                cval=0.0
+            ), axis=0
+        ) for per in xrange(c_num)
+                             ])
+        # Take Radon FFT, Central Slice Theorem
+        sinogram_fft_rows = scipy.fftpack.fftshift(
+            scipy.fftpack.fft(
+                scipy.fftpack.ifftshift(
+                    sinogram,
+                    axes=1
+                )
+            ), axes=1
+        )
+        ###### DELME ####
+        V=100
+        import matplotlib.pyplot as plt
+        plt.figure()
+        plt.title("Image")
+        plt.imshow(image, vmin=0.0, vmax=1.0)
+        plt.gray()
+        plt.figure()
+        plt.subplot(121)
+        plt.title("Sinogram rows FFT (real)")
+        plt.imshow(np.real(sinogram_fft_rows), vmin=-V, vmax=V)
+        plt.subplot(122)
+        plt.title("Sinogram rows FFT (imag)")
+        plt.imshow(np.imag(sinogram_fft_rows), vmin=-V, vmax=V)
+
+        # Generate points in polar coordinates
+        angle_p = np.array([(np.pi * ang) / c_num for ang in xrange(c_num)])
+        radius_p = np.arange(fourier_res) - fourier_res / 2
+        radius_p, angle_p = np.meshgrid(radius_p, angle_p)
+        radius_p = radius_p.flatten()
+        angle_p = angle_p.flatten()
+        source_x = (fourier_res / 2) + radius_p * np.cos(angle_p)
+        source_y = (fourier_res / 2) + radius_p * np.sin(angle_p)
+
+        # Destination coords in polar
+        dest_x, dest_y = np.meshgrid(np.arange(fourier_res), np.arange(fourier_res))
+        dest_x = dest_x.flatten()
+        dest_y = dest_y.flatten()
+
+        # Interpolate fourier spectrum info
+        fft = scipy.interpolate.griddata(
+            (source_y, source_x),
+            sinogram_fft_rows.flatten(),
+            (dest_y, dest_x),
+            method='cubic',
+            fill_value=0.0
+        ).reshape((fourier_res, fourier_res))
+
+        recon = np.real(
+            scipy.fftpack.fftshift(
+                scipy.fftpack.ifft2(
+                    scipy.fftpack.ifftshift(fft)
+                )
+            )
+        )
+
+        plt.figure()
+        plt.title("Reconstruction")
+        plt.imshow(recon, vmin=0.0, vmax=1.0)
+        plt.gray()
+        plt.show()
+
+
+
 if __name__ == '__main__':
-    test_image = cv2.imread('../data/road.jpg', 1)
+    test_image = cv2.imread('../data/fox.png', 1)
     im_res = test_image.shape[:-1]
     factor = im_res[0] / float(im_res[1])
     n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
@@ -237,21 +357,20 @@ if __name__ == '__main__':
     cn = rag.neighbours_regions(t_clusters)
     ed = rag.find_edges(cn, clust_col_t)
 
-    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.22)
+    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.20)
     n_clusters = concat_params[0]
     edge_mst = concat_params[1]
     clust_col_rgb = rag.slic_mean_rgb(n_clusters)
     rag.plot_regions(t_clusters, edge_mst)
     mpeg = MPEG7Descriptors(n_clusters, n_image)
-    nn = mpeg.mpeg7_region_shape(n_image)
+    nn = mpeg.mpeg7_homogeneus_texture()
     # nn = mpeg.polar2cart(nn)
     # nn = mpeg.cart2radial(n_image)
     # nn = mpeg.polar2cart(nn)
-    print "aa"
     # dcd = mpeg.find_dominant_colours(max_cols=8)
     # print "aa"
 
-    cv2.imshow('contours1', n_image)
-    cv2.imshow('contours2', nn)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # cv2.imshow('contours1', n_image)
+    # cv2.imshow('contours2', nn)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
