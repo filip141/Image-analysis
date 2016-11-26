@@ -202,7 +202,7 @@ class RAGSegmentation(object):
             cv2.line(self.image_mean, reg_points[point_one], reg_points[point_two], (255, 0, 0), 1)
 
 if __name__ == '__main__':
-    test_image = cv2.imread('../data/road.jpg', 1)
+    test_image = cv2.imread('../data/road_2.jpg', 1)
     test_image_2 = test_image.copy()
     rag = RAGSegmentation(test_image, slic_clust_num=200, slic_cw=15, median_blur=7)
     t_clusters = rag.run_slic()

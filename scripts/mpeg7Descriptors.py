@@ -1,24 +1,27 @@
-import scipy.misc
-import scipy.fftpack
-import scipy.interpolate
-import scipy.ndimage.interpolation
-
 import cv2
 import sys
 import random
+import scipy.misc
 import numpy as np
+import scipy.fftpack
+import scipy.interpolate
+import scipy.ndimage.interpolation
+import matplotlib.pyplot as plt
 from rag_segmentation import RAGSegmentation
-from metric_methods import euclidean_dist
+from metric_methods import meas_sim_texture_desc, meas_sim_col, meas_sim_shape
+from const_data import CEN_FREQ, OCT_BAND, ANGULAR_BAND, ANGULAR_CEN
 
 sys.setrecursionlimit(20000)
-
+gabor_radial = 5
+gabor_angular = 6
 default_wres = 320
 
 
 class MPEG7Descriptors(object):
 
     def __init__(self, clusters, image):
-        self.image = cv2.cvtColor(image, cv2.COLOR_BGR2Lab)
+        self.image_rgb = image
+        self.image_lab = cv2.cvtColor(image, cv2.COLOR_BGR2Lab)
         self.image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         self.clusters = clusters
         self.segments = set(clusters.flatten())
@@ -87,7 +90,7 @@ class MPEG7Descriptors(object):
                 else:
                     centers[cnt_idx] = random.sample(segment, 1)[0]
             cent_sum = sum(sum([abs(cnt - old) for cnt, old in zip(centers, old_cen)]))
-            print abs(old_cen_sum - cent_sum)
+            # print abs(old_cen_sum - cent_sum)
             if abs(old_cen_sum - cent_sum) < 0.1:
                 break
             old_cen = [o_cnt for o_cnt in centers]
@@ -118,12 +121,17 @@ class MPEG7Descriptors(object):
 
     def mpeg7_dominant_colours(self, max_cols):
         dcd_per_seg = {}
+        old = None
         for segment_idx in self.segments:
+            print "Extracting data from segment: {}".format(segment_idx)
             idx = (self.clusters == segment_idx)
             seg_idxs = np.transpose(np.nonzero(idx == True))
-            segment_points = self.image[idx]
+            segment_points = self.image_lab[idx]
             dc = self.dominant_colour(max_cols, segment_points, seg_idxs)
             dcd_per_seg[segment_idx] = dc
+            if old is not None:
+                meas_sim_col(dc, old)
+            old = dc
         return dcd_per_seg
 
     @staticmethod
@@ -222,7 +230,7 @@ class MPEG7Descriptors(object):
         ang_scale = (2 * np.pi) / height
         r_scale = 1 / float(width)
         polar_image = cv2.cvtColor(self.cart2radial(image), cv2.COLOR_BGR2GRAY)
-        art_coeffs = np.zeros((coeffs_n, coeffs_m), dtype=np.complex128)
+        result_art = np.zeros((coeffs_n, coeffs_m), dtype=np.float64)
         angle_mat = ang_scale * (np.ones((width, 1)) * np.arange(height)).transpose()
         radius_mat = r_scale * np.arange(width)
         for n in xrange(coeffs_n):
@@ -237,26 +245,61 @@ class MPEG7Descriptors(object):
                 image_mult = polar_image * v_base * r_scale * (np.ones((height, 1)) * np.arange(width))
                 high_sum = np.sum(image_mult, axis=1, dtype=np.complex128) * r_scale
                 art_coeff = np.sum(high_sum, dtype=np.complex128) * ang_scale
-                art_coeffs[n, m] = art_coeff
-        return art_coeffs
+                result_art[n, m] = np.abs(art_coeff)
+        result_art /= result_art[0, 0]
+        return result_art
 
-    def mpeg7_region_shape(self, image):
-        return self.art_transform(image)
+    def mpeg7_region_shape(self):
+        feature_per_sg = {}
+        for segment_idx in self.segments:
+            print "Extracting data from segment: {}".format(segment_idx)
+            new_image = self.image_rgb.copy()
+            for negative_idx in self.segments:
+                if negative_idx != segment_idx:
+                    neg_seg = (self.clusters == negative_idx)
+                    new_image[neg_seg] = 0
+            feat_lst = self.art_transform(new_image)
+            feature_per_sg[segment_idx] = feat_lst
+        return feature_per_sg
 
     def mpeg7_homogeneus_texture(self):
+        feature_per_sg = {}
         for segment_idx in self.segments:
+            print "Extracting data from segment: {}".format(segment_idx)
             new_image = self.image_gray.copy()
             for negative_idx in self.segments:
                 if negative_idx != segment_idx:
                     neg_seg = (self.clusters == negative_idx)
-                    # new_image[neg_seg] = 0
-            self.radon_transform(new_image)
-            print "aa"
+                    new_image[neg_seg] = 0
+            feat_lst = self.radon_feature_extract(new_image)
+            feature_per_sg[segment_idx] = feat_lst
+        return feature_per_sg
 
     @staticmethod
-    def radon_transform(image):
+    def gabor_filters(num_rad, num_ang, plane_len):
+        # Define plane points
+        ang_w, rad_h = plane_len
+        rad = lambda x: ((np.pi * x) / 180)
+        angle_p = np.array([(2 * np.pi * ang) / ang_w for ang in xrange(ang_w)])
+        radius_p = np.linspace(0, 1, rad_h)
+        radius_p, angle_p = np.meshgrid(radius_p, angle_p)
+        radius_p = radius_p.flatten()
+        angle_p = angle_p.flatten()
+        g_filter_list = []
+        for r_idx in xrange(num_rad):
+            for a_idx in xrange(num_ang):
+                rad_std = OCT_BAND[r_idx] / 2 * np.sqrt(2 * np.log(2))
+                ang_std = rad(ANGULAR_BAND[a_idx]) / 2 * np.sqrt(2 * np.log(2))
+                gabor_func = (np.exp((-((radius_p - 0.5) - CEN_FREQ[r_idx])**2) / (2.0 * rad_std**2)) *
+                              np.exp((-(angle_p - rad(ANGULAR_CEN[a_idx]))**2) / (2.0 * ang_std**2)))\
+                    .reshape(plane_len)
+                g_filter_list.append(gabor_func)
+        return g_filter_list
+
+    @staticmethod
+    def radon_feature_extract(image):
         # Convert to gray scale
-        c_num = 259
+        c_num = 329
         image = np.asarray(image, dtype=np.float32) / 255.0
         width, height = image.shape
         if height > width:
@@ -266,17 +309,18 @@ class MPEG7Descriptors(object):
             add_new = np.zeros((width, width - height))
             image = np.concatenate((image, add_new), axis=1)
         fourier_res = height
+
         # Compute Radon Transform
         sinogram = np.array([np.sum(
             scipy.ndimage.interpolation.rotate(
                 image,
-                (np.pi * per) / c_num,
+                np.rad2deg((np.pi * per) / c_num),
                 reshape=False,
                 mode='constant',
                 cval=0.0
             ), axis=0
-        ) for per in xrange(c_num)
-                             ])
+        ) for per in xrange(c_num)])
+
         # Take Radon FFT, Central Slice Theorem
         sinogram_fft_rows = scipy.fftpack.fftshift(
             scipy.fftpack.fft(
@@ -286,91 +330,80 @@ class MPEG7Descriptors(object):
                 )
             ), axes=1
         )
-        ###### DELME ####
-        V=100
-        import matplotlib.pyplot as plt
-        plt.figure()
-        plt.title("Image")
-        plt.imshow(image, vmin=0.0, vmax=1.0)
-        plt.gray()
-        plt.figure()
-        plt.subplot(121)
-        plt.title("Sinogram rows FFT (real)")
-        plt.imshow(np.real(sinogram_fft_rows), vmin=-V, vmax=V)
-        plt.subplot(122)
-        plt.title("Sinogram rows FFT (imag)")
-        plt.imshow(np.imag(sinogram_fft_rows), vmin=-V, vmax=V)
 
         # Generate points in polar coordinates
-        angle_p = np.array([(np.pi * ang) / c_num for ang in xrange(c_num)])
-        radius_p = np.arange(fourier_res) - fourier_res / 2
+        angle_p = np.array([(2 * np.pi * ang) / c_num for ang in xrange(c_num)])
+        radius_p = np.linspace(0, 1, fourier_res)
         radius_p, angle_p = np.meshgrid(radius_p, angle_p)
-        radius_p = radius_p.flatten()
-        angle_p = angle_p.flatten()
-        source_x = (fourier_res / 2) + radius_p * np.cos(angle_p)
-        source_y = (fourier_res / 2) + radius_p * np.sin(angle_p)
+        g_filters = MPEG7Descriptors.gabor_filters(gabor_radial, gabor_angular, (c_num, fourier_res))
+        feature_list = []
+        for g_func in g_filters:
+            feature = {}
+            p = (g_func * radius_p * sinogram_fft_rows)**2
+            sum_p = np.sum(np.sum(p, axis=1))
+            e = np.log10(1 + sum_p)
+            q = ((g_func * radius_p * sinogram_fft_rows)**2 - sum_p)**2
+            sum_q = np.sqrt(np.sum(np.sum(q, axis=1)))
+            d = np.log10(1 + sum_q)
+            feature['d'] = d
+            feature['e'] = e
+            feature_list.append(feature)
 
-        # Destination coords in polar
-        dest_x, dest_y = np.meshgrid(np.arange(fourier_res), np.arange(fourier_res))
-        dest_x = dest_x.flatten()
-        dest_y = dest_y.flatten()
-
-        # Interpolate fourier spectrum info
-        fft = scipy.interpolate.griddata(
-            (source_y, source_x),
-            sinogram_fft_rows.flatten(),
-            (dest_y, dest_x),
-            method='cubic',
-            fill_value=0.0
-        ).reshape((fourier_res, fourier_res))
-
-        recon = np.real(
-            scipy.fftpack.fftshift(
-                scipy.fftpack.ifft2(
-                    scipy.fftpack.ifftshift(fft)
-                )
-            )
-        )
-
-        plt.figure()
-        plt.title("Reconstruction")
-        plt.imshow(recon, vmin=0.0, vmax=1.0)
-        plt.gray()
-        plt.show()
-
-
+        image_mean = np.mean(image)
+        image_std = np.std(image)
+        feature_list.append(image_mean)
+        feature_list.append(image_std)
+        return feature_list
 
 if __name__ == '__main__':
-    test_image = cv2.imread('../data/fox.png', 1)
+    test_image = cv2.imread('../data/ss1.png', 1)
     im_res = test_image.shape[:-1]
     factor = im_res[0] / float(im_res[1])
     n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
     test_image_2 = n_image.copy()
-    rag = RAGSegmentation(n_image, slic_clust_num=200, slic_cw=15, median_blur=7)
-    t_clusters = rag.run_slic()
-    # rag.slic_sp.plot()
-
-    # take mean
-    clust_col_rgb = rag.slic_mean_rgb(t_clusters)
-    clust_col_t = rag.slic_mean_lab(t_clusters)
-    # calculate edges
-    cn = rag.neighbours_regions(t_clusters)
-    ed = rag.find_edges(cn, clust_col_t)
-
-    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.20)
-    n_clusters = concat_params[0]
-    edge_mst = concat_params[1]
-    clust_col_rgb = rag.slic_mean_rgb(n_clusters)
-    rag.plot_regions(t_clusters, edge_mst)
-    mpeg = MPEG7Descriptors(n_clusters, n_image)
-    nn = mpeg.mpeg7_homogeneus_texture()
-    # nn = mpeg.polar2cart(nn)
-    # nn = mpeg.cart2radial(n_image)
-    # nn = mpeg.polar2cart(nn)
-    # dcd = mpeg.find_dominant_colours(max_cols=8)
+    mpeg = MPEG7Descriptors(np.array([]), n_image)
+    test_case_feat = mpeg.art_transform(test_image_2)
+    check_imgs = ["kwadrat.jpg", "circ.jpg", "fig.jpg", "gw.jpg", "trojkat.jpg", "gw2.png", "plane_2.jpg",
+                  "apple2.jpg", "home.jpg", "ss.jpeg"]
+    ranks = []
+    for image in check_imgs:
+        print "Extracting features for image: {}".format(image)
+        test_image = cv2.imread('../data/' + image, 1)
+        im_res = test_image.shape[:-1]
+        factor = im_res[0] / float(im_res[1])
+        n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
+        test_image_2 = n_image.copy()
+        mpeg = MPEG7Descriptors(np.array([]), n_image)
+        base_feat = mpeg.art_transform(test_image_2)
+        ranks.append(meas_sim_shape(test_case_feat, base_feat))
+    print "Item Index: " + str(ranks.index(min(ranks)))
+    print "Grades: " + str(ranks)
+    # mpeg.art_transform()
+    # rag = RAGSegmentation(n_image, slic_clust_num=200, slic_cw=15, median_blur=7)
+    # t_clusters = rag.run_slic()
+    # # rag.slic_sp.plot()
+    #
+    # # take mean
+    # clust_col_rgb = rag.slic_mean_rgb(t_clusters)
+    # clust_col_t = rag.slic_mean_lab(t_clusters)
+    # # calculate edges
+    # cn = rag.neighbours_regions(t_clusters)
+    # ed = rag.find_edges(cn, clust_col_t)
+    #
+    # concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.20)
+    # n_clusters = concat_params[0]
+    # edge_mst = concat_params[1]
+    # clust_col_rgb = rag.slic_mean_rgb(n_clusters)
+    # rag.plot_regions(t_clusters, edge_mst)
+    # mpeg = MPEG7Descriptors(n_clusters, n_image)
+    # nn = mpeg.mpeg7_dominant_colours(6)
+    # # nn = mpeg.polar2cart(nn)
+    # # nn = mpeg.cart2radial(n_image)
+    # # nn = mpeg.polar2cart(nn)
+    # # dcd = mpeg.find_dominant_colours(max_cols=8)
     # print "aa"
 
     # cv2.imshow('contours1', n_image)
-    # cv2.imshow('contours2', nn)
+    # # cv2.imshow('contours2', nn)
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
