@@ -1,6 +1,5 @@
-import copy
-
 import cv2
+import copy
 import numpy as np
 from slic import SLICSuperPixel
 from metric_methods import euclidean_dist
@@ -36,14 +35,15 @@ class RAGSegmentation(object):
             mean_dict[clust_idx] = colour_mean
         return mean_dict
 
-    def slic_mean_lab(self, clusters):
+    def slic_mean_lab(self, clusters, nchange=False):
         mean_dict = {}
         for clust_idx in xrange(self.slic_clust_num):
             idx = (clusters == clust_idx)
             cluster_cols = self.image_lab[idx]
             colour_sum = np.sum(cluster_cols, axis=0)
             colour_mean = colour_sum / np.sum(idx)
-            self.image_lab[idx] = colour_mean
+            if not nchange:
+                self.image_lab[idx] = colour_mean
             mean_dict[clust_idx] = colour_mean
         return mean_dict
 
@@ -173,14 +173,15 @@ class RAGSegmentation(object):
         edge_mst, weight_mst, vertex_mst = self.kruskal_alg(new_edges, new_weight, vertex_list)
 
         new_cluster = 1
+        new_clust_array = np.zeros(new_clusters.shape)
         for tree in vertex_mst:
             ng_mask = np.zeros(new_clusters.shape, dtype=bool)
             for vertex in tree:
                 ng_mask = np.logical_or(ng_mask, new_clusters == vertex)
-            new_clusters[ng_mask] = new_cluster
+            new_clust_array[ng_mask] = new_cluster
             new_cluster += 1
 
-        return new_clusters, edge_mst, weight_mst, vertex_mst
+        return new_clust_array, edge_mst, weight_mst, vertex_mst
 
     def plot_regions(self, clusters, edge_mst):
         reg_points = {}
@@ -202,25 +203,24 @@ class RAGSegmentation(object):
             cv2.line(self.image_mean, reg_points[point_one], reg_points[point_two], (255, 0, 0), 1)
 
 if __name__ == '__main__':
-    test_image = cv2.imread('../data/road_2.jpg', 1)
+    test_image = cv2.imread('../data/road.jpg', 1)
     test_image_2 = test_image.copy()
     rag = RAGSegmentation(test_image, slic_clust_num=200, slic_cw=15, median_blur=7)
     t_clusters = rag.run_slic()
     # rag.slic_sp.plot()
 
     # take mean
-    clust_col_rgb = rag.slic_mean_rgb(t_clusters)
-    clust_col_t = rag.slic_mean_lab(t_clusters)
+    # clust_col_rgb = rag.slic_mean_rgb(t_clusters)
+    clust_col_t = rag.slic_mean_lab(t_clusters, nchange=True)
     # calculate edges
     cn = rag.neighbours_regions(t_clusters)
     ed = rag.find_edges(cn, clust_col_t)
 
-    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.22)
+    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.53)
     n_clusters = concat_params[0]
     edge_mst = concat_params[1]
     clust_col_rgb = rag.slic_mean_rgb(n_clusters)
     # rag.plot_regions(t_clusters, edge_mst)
-
     cv2.imshow('contours1', rag.image_mean)
     cv2.imshow('contours2', test_image_2)
     cv2.waitKey(0)

@@ -1,5 +1,7 @@
+import os
 import cv2
 import sys
+import json
 import random
 import scipy.misc
 import numpy as np
@@ -17,6 +19,61 @@ gabor_angular = 6
 default_wres = 320
 
 
+def generate_image_json(image, json_name, dominant_col=8):
+    image_dict = {}
+    descriptor_dir = "descriptors"
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    dir_path = os.path.split(dir_path)[0]
+    desc_path = os.path.join(dir_path, "data", descriptor_dir)
+    # Resize image
+    im_res = image.shape[:-1]
+    factor = im_res[0] / float(im_res[1])
+    n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
+    # Image Segmentation
+    rag = RAGSegmentation(n_image, slic_clust_num=200, slic_cw=15, median_blur=7)
+    t_clusters = rag.run_slic()
+    clust_col_t = rag.slic_mean_lab(t_clusters)
+    cn = rag.neighbours_regions(t_clusters)
+    ed = rag.find_edges(cn, clust_col_t)
+    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.53)
+    n_clusters = concat_params[0]
+    # Make json folder
+    if not os.path.exists(desc_path):
+        os.mkdir(desc_path)
+    # Mpeg 7 descriptors
+    mpeg = MPEG7Descriptors(n_clusters, n_image)
+    # label segments
+    segment_names = {}
+    segment_list = mpeg.segment_generator(one_dim=False)
+    for segment in segment_list:
+        print "Waiting for new figure..."
+        # Show figure
+        plt.figure()
+        plt.axis("off")
+        plt.title("Image")
+        plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        plt.figure()
+        plt.axis("off")
+        plt.title("Segment number {}".format(segment[1]))
+        plt.imshow(cv2.cvtColor(segment[0], cv2.COLOR_BGR2RGB))
+        plt.show()
+        # Ask for label
+        new_label = raw_input("Name image segment: ")
+        segment_names[segment[1]] = new_label
+    # Extract features
+    colors_desc = mpeg.mpeg7_dominant_colours(dominant_col)
+    texture_desc = mpeg.mpeg7_homogeneus_texture()
+    shape_desc = mpeg.mpeg7_region_shape()
+    image_dict["colour"] = colors_desc
+    image_dict["texture"] = texture_desc
+    image_dict["shape"] = shape_desc
+    image_dict["segments"] = segment_names
+    print "Writing data to JSON File..."
+    file_path = os.path.join(desc_path, "{}.json".format(json_name))
+    with open(file_path, "w") as jfp:
+        json.dump(image_dict, jfp)
+
+
 class MPEG7Descriptors(object):
 
     def __init__(self, clusters, image):
@@ -26,6 +83,18 @@ class MPEG7Descriptors(object):
         self.clusters = clusters
         self.segments = set(clusters.flatten())
         self.segments.discard(-1)
+
+    def segment_generator(self, one_dim=True):
+        for segment_idx in self.segments:
+            if one_dim:
+                new_image = self.image_gray.copy()
+            else:
+                new_image = self.image_rgb.copy()
+            for negative_idx in self.segments:
+                if negative_idx != segment_idx:
+                    neg_seg = (self.clusters == negative_idx)
+                    new_image[neg_seg] = 0
+            yield new_image, segment_idx
 
     def get_px_ngs(self, ref_pxs, used_pxs, cent_idxs, all_seg_pxs):
         while True:
@@ -101,8 +170,8 @@ class MPEG7Descriptors(object):
             dc_idx = (clusters == cnt_idx)
             cent_points = segment[dc_idx].tolist()
             cent_idxs = seg_idxs[dc_idx]
-            dc_mean = centers[cnt_idx]
-            dc_var = np.var(cent_points, axis=0)
+            dc_mean = centers[cnt_idx].tolist()
+            dc_var = np.var(cent_points, axis=0).tolist()
             dc_percentage = len(cent_points) / float(len(segment))
 
             # Find spatial coherence
@@ -121,17 +190,13 @@ class MPEG7Descriptors(object):
 
     def mpeg7_dominant_colours(self, max_cols):
         dcd_per_seg = {}
-        old = None
         for segment_idx in self.segments:
             print "Extracting data from segment: {}".format(segment_idx)
             idx = (self.clusters == segment_idx)
             seg_idxs = np.transpose(np.nonzero(idx == True))
             segment_points = self.image_lab[idx]
             dc = self.dominant_colour(max_cols, segment_points, seg_idxs)
-            dcd_per_seg[segment_idx] = dc
-            if old is not None:
-                meas_sim_col(dc, old)
-            old = dc
+            dcd_per_seg[int(segment_idx)] = dc
         return dcd_per_seg
 
     @staticmethod
@@ -247,32 +312,24 @@ class MPEG7Descriptors(object):
                 art_coeff = np.sum(high_sum, dtype=np.complex128) * ang_scale
                 result_art[n, m] = np.abs(art_coeff)
         result_art /= result_art[0, 0]
-        return result_art
+        return result_art.tolist()
 
     def mpeg7_region_shape(self):
         feature_per_sg = {}
-        for segment_idx in self.segments:
+        segment_list = self.segment_generator(one_dim=False)
+        for new_image, segment_idx in segment_list:
             print "Extracting data from segment: {}".format(segment_idx)
-            new_image = self.image_rgb.copy()
-            for negative_idx in self.segments:
-                if negative_idx != segment_idx:
-                    neg_seg = (self.clusters == negative_idx)
-                    new_image[neg_seg] = 0
             feat_lst = self.art_transform(new_image)
-            feature_per_sg[segment_idx] = feat_lst
+            feature_per_sg[int(segment_idx)] = feat_lst
         return feature_per_sg
 
     def mpeg7_homogeneus_texture(self):
         feature_per_sg = {}
-        for segment_idx in self.segments:
+        segment_list = self.segment_generator()
+        for new_image, segment_idx in segment_list:
             print "Extracting data from segment: {}".format(segment_idx)
-            new_image = self.image_gray.copy()
-            for negative_idx in self.segments:
-                if negative_idx != segment_idx:
-                    neg_seg = (self.clusters == negative_idx)
-                    new_image[neg_seg] = 0
             feat_lst = self.radon_feature_extract(new_image)
-            feature_per_sg[segment_idx] = feat_lst
+            feature_per_sg[int(segment_idx)] = feat_lst
         return feature_per_sg
 
     @staticmethod
@@ -345,8 +402,8 @@ class MPEG7Descriptors(object):
             q = ((g_func * radius_p * sinogram_fft_rows)**2 - sum_p)**2
             sum_q = np.sqrt(np.sum(np.sum(q, axis=1)))
             d = np.log10(1 + sum_q)
-            feature['d'] = d
-            feature['e'] = e
+            feature['d'] = np.abs(d)
+            feature['e'] = np.abs(e)
             feature_list.append(feature)
 
         image_mean = np.mean(image)
@@ -356,33 +413,14 @@ class MPEG7Descriptors(object):
         return feature_list
 
 if __name__ == '__main__':
-    test_image = cv2.imread('../data/ss1.png', 1)
-    im_res = test_image.shape[:-1]
-    factor = im_res[0] / float(im_res[1])
-    n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
-    test_image_2 = n_image.copy()
-    mpeg = MPEG7Descriptors(np.array([]), n_image)
-    test_case_feat = mpeg.art_transform(test_image_2)
-    check_imgs = ["kwadrat.jpg", "circ.jpg", "fig.jpg", "gw.jpg", "trojkat.jpg", "gw2.png", "plane_2.jpg",
-                  "apple2.jpg", "home.jpg", "ss.jpeg"]
-    ranks = []
-    for image in check_imgs:
-        print "Extracting features for image: {}".format(image)
-        test_image = cv2.imread('../data/' + image, 1)
-        im_res = test_image.shape[:-1]
-        factor = im_res[0] / float(im_res[1])
-        n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
-        test_image_2 = n_image.copy()
-        mpeg = MPEG7Descriptors(np.array([]), n_image)
-        base_feat = mpeg.art_transform(test_image_2)
-        ranks.append(meas_sim_shape(test_case_feat, base_feat))
-    print "Item Index: " + str(ranks.index(min(ranks)))
-    print "Grades: " + str(ranks)
-    # mpeg.art_transform()
+    test_image = cv2.imread('../data/road.jpg', 1)
+    generate_image_json(test_image, "road")
+    # im_res = test_image.shape[:-1]
+    # factor = im_res[0] / float(im_res[1])
+    # n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
+    # test_image_2 = n_image.copy()
     # rag = RAGSegmentation(n_image, slic_clust_num=200, slic_cw=15, median_blur=7)
     # t_clusters = rag.run_slic()
-    # # rag.slic_sp.plot()
-    #
     # # take mean
     # clust_col_rgb = rag.slic_mean_rgb(t_clusters)
     # clust_col_t = rag.slic_mean_lab(t_clusters)
@@ -397,13 +435,7 @@ if __name__ == '__main__':
     # rag.plot_regions(t_clusters, edge_mst)
     # mpeg = MPEG7Descriptors(n_clusters, n_image)
     # nn = mpeg.mpeg7_dominant_colours(6)
-    # # nn = mpeg.polar2cart(nn)
-    # # nn = mpeg.cart2radial(n_image)
-    # # nn = mpeg.polar2cart(nn)
-    # # dcd = mpeg.find_dominant_colours(max_cols=8)
-    # print "aa"
 
     # cv2.imshow('contours1', n_image)
-    # # cv2.imshow('contours2', nn)
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
