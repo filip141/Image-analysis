@@ -203,9 +203,13 @@ class RAGSegmentation(object):
             cv2.line(self.image_mean, reg_points[point_one], reg_points[point_two], (255, 0, 0), 1)
 
 if __name__ == '__main__':
-    test_image = cv2.imread('../data/road.jpg', 1)
+    default_wres = 320
+    test_image = cv2.imread('../data/base/road-220058_960_720.jpg', 1)
+    im_res = test_image.shape[:-1]
+    factor = im_res[0] / float(im_res[1])
+    n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
     test_image_2 = test_image.copy()
-    rag = RAGSegmentation(test_image, slic_clust_num=200, slic_cw=15, median_blur=7)
+    rag = RAGSegmentation(n_image, slic_clust_num=200, slic_cw=15, median_blur=7)
     t_clusters = rag.run_slic()
     # rag.slic_sp.plot()
 
@@ -216,7 +220,7 @@ if __name__ == '__main__':
     cn = rag.neighbours_regions(t_clusters)
     ed = rag.find_edges(cn, clust_col_t)
 
-    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.53)
+    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.60)
     n_clusters = concat_params[0]
     edge_mst = concat_params[1]
     clust_col_rgb = rag.slic_mean_rgb(n_clusters)
