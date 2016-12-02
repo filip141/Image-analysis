@@ -232,10 +232,10 @@ class MPEG7Descriptors(object):
 
     def art_transform(self, image):
         coeffs_n, coeffs_m = (3, 12)
-        height, width = image.shape[:-1]
+        height, width = image.shape
         ang_scale = (2 * np.pi) / float(height)
         r_scale = 1 / float(width)
-        polar_image = cv2.cvtColor(self.cart2radial(image), cv2.COLOR_BGR2GRAY)
+        polar_image = self.cart2radial(image, one_dim=True)
         result_art = np.zeros((coeffs_n, coeffs_m), dtype=np.float64)
         angle_mat = ang_scale * (np.ones((width, 1)) * np.arange(height)).transpose()
         radius_mat = r_scale * np.arange(width)
@@ -261,6 +261,15 @@ class MPEG7Descriptors(object):
         segment_list = self.segment_generator(one_dim=False)
         for new_image, segment_idx in segment_list:
             print "Extracting data from segment: {}".format(segment_idx)
+            new_image = cv2.cvtColor(new_image, cv2.COLOR_BGR2GRAY)
+            idx = (self.clusters == segment_idx)
+            new_image[idx] = 1.0
+            idx = 1 * idx
+            cntr = cv2.findContours(idx.astype(np.uint8).copy(),
+                                    cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
+            x, y, w, h = cv2.boundingRect(cntr)
+            new_plane = np.zeros((h, w))
+            new_plane[:, :] = new_image[y: y + h, x: x + w]
             feat_lst = self.art_transform(new_image)
             feature_per_sg[int(segment_idx)] = feat_lst
         return feature_per_sg
@@ -356,7 +365,7 @@ class MPEG7Descriptors(object):
 
 if __name__ == '__main__':
     default_wres = 320
-    test_image = cv2.imread('../data/bal.jpg', 1)
+    test_image = cv2.imread('../data/road.jpg', 1)
     im_res = test_image.shape[:-1]
     factor = im_res[0] / float(im_res[1])
     n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
@@ -376,7 +385,7 @@ if __name__ == '__main__':
     n_clusters = concat_params[0]
     edge_mst = concat_params[1]
     mpeg = MPEG7Descriptors(n_clusters, n_image)
-    n_img = mpeg.radon_feature_extract(cv2.cvtColor(n_image, cv2.COLOR_BGR2GRAY))
-    cv2.imshow('contours1', n_img)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    n_img = mpeg.mpeg7_region_shape()
+    # cv2.imshow('contours1', n_img)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
