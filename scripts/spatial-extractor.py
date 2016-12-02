@@ -42,6 +42,7 @@ class SpatialExtractor(object):
     def find_spatial(self, c_param, image):
         im_h, im_w = self.clusters.shape
         relations = {}
+        clear_img = image.copy()
         for cntr, mask, idx in self.contours_generator():
             local_rels = {}
             # Compute MBR
@@ -74,46 +75,125 @@ class SpatialExtractor(object):
             a1, b1 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_u_x[1][0], point_u_x[1][1]])
             a2, b2 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_l_y[1][0], point_l_y[1][1]])
             for x_i in xrange(new_x, new_x + new_w / 2):
-                up_const = int(a1 * x_i + b1) if int(a1 * x_i + b1) > 0 else 0
+                up_const = int(a1 * x_i + b1) if int(a1 * x_i + b1) > new_y else new_y
                 dn_const = int(a2 * x_i + b2)
                 for y_i in xrange(up_const, dn_const):
                     nw_f.append((y_i, x_i))
 
-            self.ratio_indexing(nw_f, idx)
+            local_rels['NW'] = self.ratio_indexing(nw_f, idx)
 
             # N
             n_f = []
             a1, b1 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_u_x[1][0], point_u_x[1][1]])
             a2, b2 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_u_x[3][0], point_u_x[3][1]])
             for x_i in xrange(int(point_u_x[1][1]), int(point_u_x[2][1])):
-                up_const = int(a1 * x_i + b1) if int(a1 * x_i + b1) > 0 else 0
+                up_const = int(a1 * x_i + b1) if int(a1 * x_i + b1) > new_y else new_y
                 for y_i in xrange(new_y, up_const):
                     n_f.append((y_i, x_i))
             for x_i in xrange(int(point_u_x[2][1]), int(point_u_x[3][1])):
-                up_const = int(a2 * x_i + b2) if int(a2 * x_i + b2) > 0 else 0
+                up_const = int(a2 * x_i + b2) if int(a2 * x_i + b2) > new_y else new_y
                 for y_i in xrange(new_y, up_const):
                     n_f.append((y_i, x_i))
 
-            self.ratio_indexing(n_f, idx)
+            local_rels['N'] = self.ratio_indexing(n_f, idx)
 
             # NE
             ne_f = []
             a1, b1 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_u_x[3][0], point_u_x[3][1]])
             a2, b2 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_r_y[1][0], point_r_y[1][1]])
             for x_i in xrange(new_x + new_w / 2, new_x + new_w):
-                up_const = int(a1 * x_i + b1) if int(a1 * x_i + b1) > 0 else 0
+                up_const = int(a1 * x_i + b1) if int(a1 * x_i + b1) > new_y else new_y
                 dn_const = int(a2 * x_i + b2)
                 for y_i in xrange(up_const, dn_const):
                     ne_f.append((y_i, x_i))
 
-            self.ratio_indexing(ne_f, idx)
+            local_rels['NE'] = self.ratio_indexing(ne_f, idx)
 
+            # E
+            e_f = []
+            a1, b1 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_r_y[1][0], point_r_y[1][1]])
+            a2, b2 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_r_y[3][0], point_r_y[3][1]])
+            for x_i in xrange(new_x + new_w / 2, new_x + new_w):
+                up_const = int(a1 * x_i + b1)
+                dn_const = int(a2 * x_i + b2)
+                for y_i in xrange(up_const, dn_const):
+                    e_f.append((y_i, x_i))
 
-            for point in ne_f:
-                image[point] = (0, 255, 0)
+            local_rels['E'] = self.ratio_indexing(e_f, idx)
+
+            # SE
+            se_f = []
+            a1, b1 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_r_y[3][0], point_r_y[3][1]])
+            a2, b2 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_d_x[3][0], point_d_x[3][1]])
+            for x_i in xrange(new_x + new_w / 2, new_x + new_w):
+                up_const = int(a1 * x_i + b1)
+                dn_const = int(a2 * x_i + b2) if int(a2 * x_i + b2) < (new_y + new_h) else (new_y + new_h)
+                for y_i in xrange(up_const, dn_const):
+                    se_f.append((y_i, x_i))
+
+            local_rels['SE'] = self.ratio_indexing(se_f, idx)
+
+            # S
+            s_f = []
+            a1, b1 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_d_x[1][0], point_d_x[1][1]])
+            a2, b2 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_d_x[3][0], point_d_x[3][1]])
+            for x_i in xrange(int(point_d_x[1][1]), int(point_d_x[2][1])):
+                up_const = int(a1 * x_i + b1)
+                for y_i in xrange(up_const, new_y + new_h):
+                    s_f.append((y_i, x_i))
+            for x_i in xrange(int(point_d_x[2][1]), int(point_d_x[3][1])):
+                up_const = int(a2 * x_i + b2)
+                for y_i in xrange(up_const, new_y + new_h):
+                    s_f.append((y_i, x_i))
+
+            local_rels['S'] = self.ratio_indexing(s_f, idx)
+
+            # SW
+            sw_f = []
+            a1, b1 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_l_y[3][0], point_l_y[3][1]])
+            a2, b2 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_d_x[1][0], point_d_x[1][1]])
+            for x_i in xrange(new_x, new_x + new_w / 2):
+                up_const = int(a1 * x_i + b1)
+                dn_const = int(a2 * x_i + b2) if int(a2 * x_i + b2) < (new_y + new_h) else (new_y + new_h)
+                for y_i in xrange(up_const, dn_const):
+                    sw_f.append((y_i, x_i))
+
+            local_rels['SW'] = self.ratio_indexing(sw_f, idx)
+
+            # W
+            w_f = []
+            a1, b1 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_l_y[1][0], point_l_y[1][1]])
+            a2, b2 = self.linear_coeffs([new_y_cntr, new_x_cntr], [point_l_y[3][0], point_l_y[3][1]])
+            for x_i in xrange(new_x, new_x + new_w / 2):
+                up_const = int(a1 * x_i + b1)
+                dn_const = int(a2 * x_i + b2)
+                for y_i in xrange(up_const, dn_const):
+                    w_f.append((y_i, x_i))
+
+            local_rels['W'] = self.ratio_indexing(w_f, idx)
+
+            dirs = ["NW", "N", "NE", "E", "SE", "S", "SW", "W"]
+            all_tr = [nw_f, n_f, ne_f, e_f, se_f, s_f, sw_f, w_f]
+            image = clear_img.copy()
+            for tr_key, tr in zip(dirs, all_tr):
+                import random
+                col_tuple = [0, 0, 0]
+                col_tuple[0] = random.randint(0, 255)
+                col_tuple[1] = random.randint(0, 255)
+                col_tuple[2] = random.randint(0, 255)
+                print tr_key
+                print local_rels[tr_key]
+                for point in tr:
+                    image[point] = col_tuple
+
             n_img = image.copy()
             cv2.rectangle(n_img, (new_x, new_y), (new_x + new_w, new_y + new_h), (0, 255, 0), 2)
+            plt.figure()
             plt.imshow(n_img)
+            plt.figure()
+            plt.imshow(mask)
+            plt.figure()
+            plt.imshow(clear_img)
             plt.show()
             print "aa"
 

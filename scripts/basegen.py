@@ -2,6 +2,7 @@ import os
 import cv2
 import json
 import warnings
+import numpy as np
 import matplotlib.pyplot as plt
 from rag_segmentation import RAGSegmentation
 from mpeg7Descriptors import MPEG7Descriptors
@@ -56,7 +57,7 @@ def generate_image_json(image, json_name, dominant_col=8):
         # Ask for label
         new_label = raw_input("Name image segment: ")
         segment_names[int(segment[1])] = new_label
-        segment_regions[int(segment[1])] = segment[0].tolist()
+        segment_regions[int(segment[1])] = np.where(segment[0] != 0)
     # Extract features
     colors_desc = mpeg.mpeg7_dominant_colours(dominant_col)
     texture_desc = mpeg.mpeg7_homogeneus_texture()
