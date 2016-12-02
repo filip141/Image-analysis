@@ -1,13 +1,12 @@
-import os
 import cv2
 import sys
-import json
 import random
 import scipy.misc
 import numpy as np
 import scipy.fftpack
 import scipy.interpolate
 import scipy.ndimage.interpolation
+from rag_segmentation import RAGSegmentation
 from const_data import CEN_FREQ, OCT_BAND, ANGULAR_BAND, ANGULAR_CEN
 
 sys.setrecursionlimit(20000)
@@ -144,11 +143,11 @@ class MPEG7Descriptors(object):
     @staticmethod
     def cart2radial(image, one_dim=False, interp=True, dtype=np.uint8):
         if one_dim:
-            width, height = image.shape
-            blank_image = np.zeros((width, height), dtype)
+            height, width = image.shape
+            blank_image = np.zeros((height, width), dtype)
         else:
-            width, height = image.shape[:-1]
-            blank_image = np.zeros((width, height, 3), dtype)
+            height, width = image.shape[:-1]
+            blank_image = np.zeros((height, width, 3), dtype)
 
         # width, height = width - 1, height - 1
         max_rad = np.sqrt(width**2 + height**2) / 2.0
@@ -172,29 +171,29 @@ class MPEG7Descriptors(object):
                     y_r[1] = y_r[1] if y_r[1] <= height else height
 
                     img_col = []
-                    image_square = image[x_r[0]:x_r[1], y_r[0]:y_r[1]]
+                    image_square = image[y_r[0]:y_r[1], x_r[0]:x_r[1]]
                     for im_px in image_square:
                         img_col += im_px.tolist()
                     if len(img_col) == 0:
                         continue
                     new_col = np.sum(img_col, axis=0) / len(img_col)
                 else:
-                    new_px = [int(polar_x), int(polar_y)]
-                    new_px[0] = new_px[0] if new_px[0] <= width else width
-                    new_px[1] = new_px[1] if new_px[1] <= height else height
+                    new_px = [int(polar_y), int(polar_x)]
+                    new_px[0] = new_px[0] if new_px[0] <= height else height
+                    new_px[1] = new_px[1] if new_px[1] <= width else width
                     new_col = image[new_px[0], new_px[1]]
-                blank_image[x_a, y_a] = new_col
+                blank_image[y_a, x_a] = new_col
         return blank_image
 
     @staticmethod
     def polar2cart(pol_image, one_dim=False, interp=True, dtype=np.uint8):
         if one_dim:
-            width, height = pol_image.shape
-            blank_image = np.zeros((width, height), dtype)
+            height, width = pol_image.shape
+            blank_image = np.zeros((height, width), dtype)
         else:
-            width, height = pol_image.shape[:-1]
-            blank_image = np.zeros((width, height, 3), dtype)
-        width, height = width - 1, height - 1
+            height, width = pol_image.shape[:-1]
+            blank_image = np.zeros((height, width, 3), dtype)
+        # height, width = height - 1, width - 1
         max_rad = np.sqrt(width**2 + height**2) / 2.0
         r_scale = max_rad / width
         ang_scale = (2 * np.pi) / height
@@ -217,18 +216,18 @@ class MPEG7Descriptors(object):
                     y_r[1] = y_r[1] if y_r[1] <= height else height
 
                     img_col = []
-                    image_square = pol_image[x_r[0]:x_r[1], y_r[0]:y_r[1]]
+                    image_square = pol_image[y_r[0]:y_r[1], x_r[0]:x_r[1]]
                     for im_px in image_square:
                         img_col += im_px.tolist()
                     if len(img_col) == 0:
                         continue
                     new_col = np.sum(img_col, axis=0) / len(img_col)
                 else:
-                    new_px = [int(image_x), int(image_y)]
-                    new_px[0] = new_px[0] if new_px[0] <= width else width
-                    new_px[1] = new_px[1] if new_px[1] <= height else height
+                    new_px = [int(image_y), int(image_x)]
+                    new_px[0] = new_px[0] if new_px[0] <= height else height
+                    new_px[1] = new_px[1] if new_px[1] <= width else width
                     new_col = pol_image[new_px[0], new_px[1]]
-                blank_image[x_a, y_a] = new_col
+                blank_image[y_a, x_a] = new_col
         return blank_image
 
     def art_transform(self, image):
@@ -301,14 +300,14 @@ class MPEG7Descriptors(object):
         # Convert to gray scale
         c_num = 329
         image = np.asarray(image, dtype=np.float32) / 255.0
-        width, height = image.shape
+        height, width = image.shape
         if height > width:
-            add_new = np.zeros((height - width, height))
-            image = np.concatenate((image, add_new), axis=0)
-        else:
-            add_new = np.zeros((width, width - height))
+            add_new = np.zeros((height, height - width))
             image = np.concatenate((image, add_new), axis=1)
-        fourier_res = height
+        else:
+            add_new = np.zeros((width - height, width))
+            image = np.concatenate((image, add_new), axis=0)
+        fourier_res = width
 
         # Compute Radon Transform
         sinogram = np.array([np.sum(
@@ -356,4 +355,28 @@ class MPEG7Descriptors(object):
         return feature_list
 
 if __name__ == '__main__':
-    pass
+    default_wres = 320
+    test_image = cv2.imread('../data/bal.jpg', 1)
+    im_res = test_image.shape[:-1]
+    factor = im_res[0] / float(im_res[1])
+    n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
+    test_image_2 = test_image.copy()
+    rag = RAGSegmentation(n_image, slic_clust_num=200, slic_cw=15, median_blur=7)
+    t_clusters = rag.run_slic()
+    # rag.slic_sp.plot()
+
+    # take mean
+    # clust_col_rgb = rag.slic_mean_rgb(t_clusters)
+    clust_col_t = rag.slic_mean_lab(t_clusters, nchange=True)
+    # calculate edges
+    cn = rag.neighbours_regions(t_clusters)
+    ed = rag.find_edges(cn, clust_col_t)
+
+    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.60)
+    n_clusters = concat_params[0]
+    edge_mst = concat_params[1]
+    mpeg = MPEG7Descriptors(n_clusters, n_image)
+    n_img = mpeg.radon_feature_extract(cv2.cvtColor(n_image, cv2.COLOR_BGR2GRAY))
+    cv2.imshow('contours1', n_img)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
