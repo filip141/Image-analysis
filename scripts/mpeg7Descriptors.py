@@ -316,6 +316,7 @@ class MPEG7Descriptors(object):
         else:
             add_new = np.zeros((width - height, width))
             image = np.concatenate((image, add_new), axis=0)
+        height, width = image.shape
         fourier_res = width
 
         # Compute Radon Transform

@@ -6,9 +6,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from rag_segmentation import RAGSegmentation
 from mpeg7Descriptors import MPEG7Descriptors
+from spatialextract import SpatialExtractor
 
 warnings.filterwarnings("ignore")
 default_wres = 320
+c_param = 0.85
 
 
 def generate_image_json(image, json_name, dominant_col=8):
@@ -38,6 +40,8 @@ def generate_image_json(image, json_name, dominant_col=8):
         os.mkdir(desc_path)
     # Mpeg 7 descriptors
     mpeg = MPEG7Descriptors(n_clusters, n_image)
+    # Spatial Extractor
+    spatial = SpatialExtractor(n_clusters)
     # label segments
     segment_names = {}
     segment_regions = {}
@@ -57,16 +61,19 @@ def generate_image_json(image, json_name, dominant_col=8):
         # Ask for label
         new_label = raw_input("Name image segment: ")
         segment_names[int(segment[1])] = new_label
-        segment_regions[int(segment[1])] = np.where(segment[0] != 0)
+        segment_regions[int(segment[1])] = [n_array.tolist() for n_array in np.where(segment[0] != 0)]
     # Extract features
     colors_desc = mpeg.mpeg7_dominant_colours(dominant_col)
     texture_desc = mpeg.mpeg7_homogeneus_texture()
     shape_desc = mpeg.mpeg7_region_shape()
+    spatial_rels = spatial.find_spatial(c_param)
     image_dict["colour"] = colors_desc
     image_dict["texture"] = texture_desc
     image_dict["shape"] = shape_desc
+    image_dict["relations"] = spatial_rels
     image_dict["segments"] = segment_names
     image_dict["segment_regions"] = segment_regions
+    image_dict["image_size"] = n_image.shape
     print "Writing data to JSON File..."
     with open(file_path, "w") as jfp:
         json.dump(image_dict, jfp)

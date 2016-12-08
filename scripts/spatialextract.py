@@ -1,7 +1,5 @@
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
-from rag_segmentation import RAGSegmentation
 
 
 class SpatialExtractor(object):
@@ -39,11 +37,11 @@ class SpatialExtractor(object):
                 ratio_rel[int(sngl_seg)] = ratio
         return ratio_rel
 
-    def find_spatial(self, c_param, image):
+    def find_spatial(self, c_param):
         im_h, im_w = self.clusters.shape
         relations = {}
-        clear_img = image.copy()
         for cntr, mask, idx in self.contours_generator():
+            print "Extracting spatial relations for segment: {}".format(idx)
             local_rels = {}
             # Compute MBR
             x, y, w, h = cv2.boundingRect(cntr)
@@ -171,55 +169,9 @@ class SpatialExtractor(object):
                     w_f.append((y_i, x_i))
 
             local_rels['W'] = self.ratio_indexing(w_f, idx)
-
-            dirs = ["NW", "N", "NE", "E", "SE", "S", "SW", "W"]
-            all_tr = [nw_f, n_f, ne_f, e_f, se_f, s_f, sw_f, w_f]
-            image = clear_img.copy()
-            for tr_key, tr in zip(dirs, all_tr):
-                import random
-                col_tuple = [0, 0, 0]
-                col_tuple[0] = random.randint(0, 255)
-                col_tuple[1] = random.randint(0, 255)
-                col_tuple[2] = random.randint(0, 255)
-                print tr_key
-                print local_rels[tr_key]
-                for point in tr:
-                    image[point] = col_tuple
-
-            n_img = image.copy()
-            cv2.rectangle(n_img, (new_x, new_y), (new_x + new_w, new_y + new_h), (0, 255, 0), 2)
-            plt.figure()
-            plt.imshow(n_img)
-            plt.figure()
-            plt.imshow(mask)
-            plt.figure()
-            plt.imshow(clear_img)
-            plt.show()
-            print "aa"
-
+            relations[int(idx)] = local_rels
+        return relations
 
 
 if __name__ == '__main__':
-    default_wres = 320
-    test_image = cv2.imread('../data/road.jpg', 1)
-    im_res = test_image.shape[:-1]
-    factor = im_res[0] / float(im_res[1])
-    n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
-    test_image_2 = test_image.copy()
-    rag = RAGSegmentation(n_image, slic_clust_num=200, slic_cw=15, median_blur=7)
-    t_clusters = rag.run_slic()
-    # rag.slic_sp.plot()
-
-    # take mean
-    # clust_col_rgb = rag.slic_mean_rgb(t_clusters)
-    clust_col_t = rag.slic_mean_lab(t_clusters, nchange=True)
-    # calculate edges
-    cn = rag.neighbours_regions(t_clusters)
-    ed = rag.find_edges(cn, clust_col_t)
-
-    concat_params = rag.concat_similar_regs(ed, t_clusters, c_factor=0.60)
-    n_clusters = concat_params[0]
-    edge_mst = concat_params[1]
-    spat = SpatialExtractor(n_clusters)
-    spat.find_spatial(0.85, n_image)
-    print "aa"
+    pass

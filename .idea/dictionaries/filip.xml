@@ -1,15 +1,20 @@
 <component name="ProjectDictionaryState">
   <dictionary name="filip">
     <words>
+      <w>attrs</w>
+      <w>chrom</w>
       <w>clust</w>
       <w>cntr</w>
       <w>cpts</w>
       <w>eucl</w>
       <w>findset</w>
+      <w>fitnesses</w>
       <w>idxs</w>
       <w>istaken</w>
       <w>kruskal</w>
       <w>mpeg</w>
+      <w>pred</w>
+      <w>rels</w>
       <w>sinogram</w>
       <w>slic</w>
       <w>vert</w>

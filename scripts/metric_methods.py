@@ -53,3 +53,7 @@ def meas_sim_col(obs_one, obs_two):
         obt = [elem for idx, elem in enumerate(obt) if idx != min_idx]
     dist = np.sqrt(dist)
     return dist
+
+
+def spatial_distance(rel_o, rel_t):
+    return np.sqrt(np.sum(np.square(rel_t - rel_o))) / np.sqrt(8)
