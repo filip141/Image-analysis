@@ -1,12 +1,15 @@
 import os
 import cv2
 import random
+import warnings
 import numpy as np
 from sklearn import svm
 from sklearn.externals import joblib
 from metric_methods import spatial_distance
 from optigen_utils import prepare_image, extract_descriptors, plot
 
+
+warnings.filterwarnings("ignore")
 prohibited_class = ['nk', 'bc', 'sie']
 descriptor_dir = "classifier"
 dir_path = os.path.dirname(os.path.realpath(__file__))
