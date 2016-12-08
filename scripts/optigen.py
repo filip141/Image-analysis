@@ -5,7 +5,7 @@ import numpy as np
 from sklearn import svm
 from sklearn.externals import joblib
 from metric_methods import spatial_distance
-from optigen_utils import prepare_image, extract_descriptors
+from optigen_utils import prepare_image, extract_descriptors, plot
 
 prohibited_class = ['nk', 'bc', 'sie']
 descriptor_dir = "classifier"
@@ -110,7 +110,7 @@ class Population(object):
 
     def __init__(self, size, crossover, mutation, desc_data):
         self.species = []
-        self.fitnesses = []
+        self.fitness = 0
         self.size = size
         self.mutation = mutation
         self.crossover = crossover
@@ -123,14 +123,23 @@ class Population(object):
             chrom.update_fitness_attrs()
             self.species.append(chrom)
 
+    def set_species(self, species):
+        self.species = species
+
+    def get_grade(self):
+        return self.fitness
+
     def generate_population(self):
         fitness_at_list = np.array([ch.fitness_attrs for ch in self.species])
         fitness_at_list = ((fitness_at_list - np.mean(fitness_at_list, axis=0)) / np.std(fitness_at_list, axis=0))
         fitness_at_list = fitness_at_list + np.abs(np.min(fitness_at_list, axis=0))
         fitness_at_list = np.sum(fitness_at_list * [Chromosome.alpha, 1 - Chromosome.alpha], axis=1)
-        fitness_at_list = fitness_at_list / np.sum(fitness_at_list)
+        fitness_sum = np.sum(fitness_at_list)
+        fitness_at_list = fitness_at_list / fitness_sum
         cum_sum = np.cumsum(fitness_at_list, axis=0)
         new_species = []
+
+        print "Overall Population Rate: {}".format(fitness_sum)
         for _ in range(0, self.size):
             rnd = random.uniform(0, 1)
             # If small than first
@@ -182,6 +191,13 @@ class Population(object):
                     rnd_choice = random.choice(new_species[ch_idx].classes)
                     new_species[ch_idx].classify[b_idx] = rnd_choice
 
+        # Update fitness
+        for ch_idx in xrange(0, len(new_species)):
+            new_species[ch_idx].update_fitness_attrs()
+
+        new_pop = Population(self.size, self.crossover, self.mutation, self.desc_data)
+        new_pop.set_species(new_species)
+        return new_pop
 
 
 class OptiGen(object):
@@ -195,15 +211,16 @@ class OptiGen(object):
         # ## Define Descriptor Properties
         self.clf = self.prepare_svm(desc_path)
         self.name2id, self.spatial_rels = self.prepare_spatial_matrix(desc_path)
-        self.id2name = dict([arr[::-1] for arr in self.name2id])
+        self.id2name = dict([(int(arr[::-1][0]), arr[::-1][1]) for arr in self.name2id])
         self.name2id = dict(self.name2id)
-        proh_idx = [self.name2id[pr] for pr in prohibited_class]
-        self.classes = np.sort([int(x) for x in self.id2name.keys() if x not in proh_idx]).tolist()
+        proh_idx = [int(self.name2id[pr]) for pr in prohibited_class]
+        self.classes = np.sort([x for x in self.id2name.keys() if x not in proh_idx]).tolist()
 
     def predict(self, image):
         # ## Image Processing
         image = prepare_image(image)
-        descriptors = extract_descriptors(image, loadFromJson=True, file_name="road_example")
+        image_rgb = cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
+        descriptors = extract_descriptors(image, loadFromJson=False, file_name="road_example")
         desc_data = DescriptorData(descriptors, self.clf, self.spatial_rels, self.classes)
 
         # ## Genetic algorithm
@@ -211,7 +228,12 @@ class OptiGen(object):
         popultaion.init_population()
         counter = 0
         while counter < self.generations:
+            print "Generation: {}".format(counter)
             popultaion = popultaion.generate_population()
+            print "________________________________________________________________"
+            counter += 1
+        descriptions = [self.id2name[x] for x in popultaion.species[0].classify]
+        plot(image_rgb, descriptors, descriptions)
 
     @staticmethod
     def prepare_svm(path):
@@ -229,6 +251,6 @@ class OptiGen(object):
 
 if __name__ == '__main__':
     # define folder destination
-    test_image = cv2.imread('../data/road.jpg', 1)
-    op = OptiGen(30)
+    test_image = cv2.imread('../data/road_2.jpg', 1)
+    op = OptiGen(100)
     op.predict(test_image)
