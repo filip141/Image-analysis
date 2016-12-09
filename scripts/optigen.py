@@ -9,6 +9,7 @@ from metric_methods import spatial_distance
 from optigen_utils import prepare_image, extract_descriptors, plot
 
 
+_MAXFITNESS = 1000
 warnings.filterwarnings("ignore")
 prohibited_class = ['nk', 'bc', 'sie']
 descriptor_dir = "classifier"
@@ -132,7 +133,7 @@ class Population(object):
     def get_grade(self):
         return self.fitness
 
-    def generate_population(self):
+    def generate_population(self, maxfit):
         fitness_at_list = np.array([ch.fitness_attrs for ch in self.species])
         fitness_at_list = ((fitness_at_list - np.mean(fitness_at_list, axis=0)) / np.std(fitness_at_list, axis=0))
         fitness_at_list = fitness_at_list + np.abs(np.min(fitness_at_list, axis=0))
@@ -143,6 +144,10 @@ class Population(object):
         new_species = []
 
         print "Overall Population Rate: {}".format(fitness_sum)
+        # Stop if fitness exceed max fitness
+        if fitness_sum > maxfit:
+            return self, True
+
         for _ in range(0, self.size):
             rnd = random.uniform(0, 1)
             # If small than first
@@ -186,7 +191,7 @@ class Population(object):
         # New population
         new_species = after_cover + species_nc
 
-        ## MUTATION
+        # # MUTATION
         for ch_idx in xrange(0, len(new_species)):
             for b_idx in xrange(0, len(new_species[ch_idx].classify)):
                 rnd = random.uniform(0, 1)
@@ -200,7 +205,7 @@ class Population(object):
 
         new_pop = Population(self.size, self.crossover, self.mutation, self.desc_data)
         new_pop.set_species(new_species)
-        return new_pop
+        return new_pop, False
 
 
 class OptiGen(object):
@@ -219,11 +224,11 @@ class OptiGen(object):
         proh_idx = [int(self.name2id[pr]) for pr in prohibited_class]
         self.classes = np.sort([x for x in self.id2name.keys() if x not in proh_idx]).tolist()
 
-    def predict(self, image):
+    def predict(self, image, maxfit=1200):
         # ## Image Processing
         image = prepare_image(image)
         image_rgb = cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
-        descriptors = extract_descriptors(image, loadFromJson=False, file_name="road_example")
+        descriptors = extract_descriptors(image, loadFromJson=True, file_name="road_example")
         desc_data = DescriptorData(descriptors, self.clf, self.spatial_rels, self.classes)
 
         # ## Genetic algorithm
@@ -232,10 +237,16 @@ class OptiGen(object):
         counter = 0
         while counter < self.generations:
             print "Generation: {}".format(counter)
-            popultaion = popultaion.generate_population()
+            popultaion, f_state = popultaion.generate_population(maxfit)
             print "________________________________________________________________"
+            if f_state:
+                break
             counter += 1
-        descriptions = [self.id2name[x] for x in popultaion.species[0].classify]
+        # Find best chromosome in population
+        fitness_at_list = np.array([ch.fitness_attrs for ch in popultaion.species])
+        fitness_at_list = np.sum(fitness_at_list * [Chromosome.alpha, 1 - Chromosome.alpha], axis=1)
+        est_classify = popultaion.species[np.argmax(fitness_at_list)].classify
+        descriptions = [self.id2name[x] for x in est_classify]
         plot(image_rgb, descriptors, descriptions)
 
     @staticmethod
@@ -254,6 +265,6 @@ class OptiGen(object):
 
 if __name__ == '__main__':
     # define folder destination
-    test_image = cv2.imread('../data/road_2.jpg', 1)
-    op = OptiGen(100)
-    op.predict(test_image)
+    test_image = cv2.imread('../data/road.jpg', 1)
+    op = OptiGen(200)
+    op.predict(test_image, maxfit=_MAXFITNESS)
