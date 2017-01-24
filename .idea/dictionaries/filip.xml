@@ -9,9 +9,11 @@
       <w>eucl</w>
       <w>findset</w>
       <w>fitnesses</w>
+      <w>fparent</w>
       <w>idxs</w>
       <w>istaken</w>
       <w>kruskal</w>
+      <w>mparent</w>
       <w>mpeg</w>
       <w>pred</w>
       <w>rels</w>

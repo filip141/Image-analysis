@@ -4,12 +4,15 @@ import random
 import warnings
 import numpy as np
 from sklearn import svm
+import matplotlib.pyplot as plt
 from sklearn.externals import joblib
 from metric_methods import spatial_distance
 from optigen_utils import prepare_image, extract_descriptors, plot
 
 
-_MAXFITNESS = 1000
+plt.ion()
+best_history = []
+worst_history = []
 warnings.filterwarnings("ignore")
 prohibited_class = ['nk', 'bc', 'sie']
 descriptor_dir = "classifier"
@@ -95,7 +98,7 @@ class Chromosome(object):
     @staticmethod
     def crossover(chr_o, chr_t):
         # Random point to crossover
-        pos = random.randint(0, len(chr_o.classify))
+        pos = random.randint(0, len(chr_o.classify) - 1)
         classify_o = chr_o.classify
         classify_t = chr_t.classify
         # Crossover
@@ -133,22 +136,38 @@ class Population(object):
     def get_grade(self):
         return self.fitness
 
-    def generate_population(self, maxfit):
+    def generate_population(self, stype='roulette', show_best=True):
+        if stype == 'roulette':
+            return self.generate_population_roulette(show_best=show_best)
+        else:
+            return self.generate_population_tournament(show_best=show_best)
+
+    def generate_population_roulette(self, show_best=True):
+        # get fitnesses list and normalise
         fitness_at_list = np.array([ch.fitness_attrs for ch in self.species])
         fitness_at_list = ((fitness_at_list - np.mean(fitness_at_list, axis=0)) / np.std(fitness_at_list, axis=0))
         fitness_at_list = fitness_at_list + np.abs(np.min(fitness_at_list, axis=0))
         fitness_at_list = np.sum(fitness_at_list * [Chromosome.alpha, 1 - Chromosome.alpha], axis=1)
+
+        if show_best:
+            max_chromosome = np.max(fitness_at_list)
+            min_chromosome = np.min(fitness_at_list)
+            best_history.append(max_chromosome)
+            worst_history.append(min_chromosome)
+            plt.scatter(len(best_history) - 1, max_chromosome, label="max")
+            plt.scatter(len(worst_history) - 1, min_chromosome, label="min", color='red')
+            plt.show()
+            plt.pause(0.05)
+
+        # Calculate probabilities
         fitness_sum = np.sum(fitness_at_list)
         fitness_at_list = fitness_at_list / fitness_sum
-        cum_sum = np.cumsum(fitness_at_list, axis=0)
         new_species = []
 
         print "Overall Population Rate: {}".format(fitness_sum)
-        # Stop if fitness exceed max fitness
-        if fitness_sum > maxfit:
-            return self, True
 
-        for _ in range(0, self.size):
+        cum_sum = np.cumsum(fitness_at_list, axis=0)
+        for _ in range(0, self.size - 1):
             rnd = random.uniform(0, 1)
             # If small than first
             if rnd < cum_sum[0]:
@@ -160,6 +179,7 @@ class Population(object):
                 counter += 1
             new_species.append(self.species[counter])
 
+        new_species.append(self.species[np.argmax(fitness_at_list)])
         # # CROSSOVER
         species_nc = []
         crossover_list = []
@@ -205,7 +225,81 @@ class Population(object):
 
         new_pop = Population(self.size, self.crossover, self.mutation, self.desc_data)
         new_pop.set_species(new_species)
-        return new_pop, False
+        return new_pop
+
+    def generate_population_tournament(self, show_best=True):
+        # get fitnesses list and normalise
+        fitness_at_list = np.array([ch.fitness_attrs for ch in self.species])
+        fitness_at_list = ((fitness_at_list - np.mean(fitness_at_list, axis=0)) / np.std(fitness_at_list, axis=0))
+        fitness_at_list = fitness_at_list + np.abs(np.min(fitness_at_list, axis=0))
+        fitness_at_list = np.sum(fitness_at_list * [Chromosome.alpha, 1 - Chromosome.alpha], axis=1)
+
+        max_chromosome = np.max(fitness_at_list)
+        if show_best:
+            min_chromosome = np.min(fitness_at_list)
+            best_history.append(max_chromosome)
+            worst_history.append(min_chromosome)
+            plt.scatter(len(best_history) - 1, max_chromosome, label="max")
+            plt.scatter(len(worst_history) - 1, min_chromosome, label="min", color='red')
+            plt.show()
+            plt.pause(0.05)
+
+        # Calculate probabilities
+        fitness_sum = np.sum(fitness_at_list)
+        fitness_at_list = fitness_at_list / fitness_sum
+        new_species = []
+
+        print "Overall Population Rate: {}".format(fitness_sum)
+        print "Max Chromosome: {}".format(max_chromosome)
+
+        # Create new population
+        pop_half_num = int(len(fitness_at_list)) / 2
+        for _ in range(0, pop_half_num - 1):
+
+            # Take father
+            of_parent_idx = random.randint(0, len(fitness_at_list) - 1)
+            tf_parent_idx = random.randint(0, len(fitness_at_list) - 1)
+            if fitness_at_list[of_parent_idx] > fitness_at_list[tf_parent_idx]:
+                fparent = self.species[of_parent_idx]
+            else:
+                fparent = self.species[tf_parent_idx]
+
+            # Take Mother
+            om_parent_idx = random.randint(0, len(fitness_at_list) - 1)
+            tm_parent_idx = random.randint(0, len(fitness_at_list) - 1)
+            if fitness_at_list[om_parent_idx] > fitness_at_list[tm_parent_idx]:
+                mparent = self.species[om_parent_idx]
+            else:
+                mparent = self.species[tm_parent_idx]
+
+            # CROSSOVER
+            rnd = random.uniform(0, 1)
+            if rnd < self.crossover:
+                cr_o, cr_t = Chromosome.crossover(fparent, mparent)
+                new_species.append(cr_o)
+                new_species.append(cr_t)
+            else:
+                new_species.append(fparent)
+                new_species.append(mparent)
+
+        # MUTATION
+        for ch_idx in xrange(0, len(new_species)):
+            for b_idx in xrange(0, len(new_species[ch_idx].classify)):
+                rnd = random.uniform(0, 1)
+                if rnd < self.mutation:
+                    rnd_choice = random.choice(new_species[ch_idx].classes)
+                    new_species[ch_idx].classify[b_idx] = rnd_choice
+
+        sorted_fitness = np.argsort(fitness_at_list)
+        new_species.append(self.species[sorted_fitness[-1]])
+        new_species.append(self.species[sorted_fitness[-2]])
+        # Update fitness
+        for ch_idx in xrange(0, len(new_species)):
+            new_species[ch_idx].update_fitness_attrs()
+
+        new_pop = Population(self.size, self.crossover, self.mutation, self.desc_data)
+        new_pop.set_species(new_species)
+        return new_pop
 
 
 class OptiGen(object):
@@ -224,11 +318,11 @@ class OptiGen(object):
         proh_idx = [int(self.name2id[pr]) for pr in prohibited_class]
         self.classes = np.sort([x for x in self.id2name.keys() if x not in proh_idx]).tolist()
 
-    def predict(self, image, maxfit=1200):
+    def predict(self, image):
         # ## Image Processing
         image = prepare_image(image)
         image_rgb = cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
-        descriptors = extract_descriptors(image, loadFromJson=True, file_name="road_example")
+        descriptors = extract_descriptors(image, loadFromJson=False, file_name="road_example")
         desc_data = DescriptorData(descriptors, self.clf, self.spatial_rels, self.classes)
 
         # ## Genetic algorithm
@@ -237,10 +331,8 @@ class OptiGen(object):
         counter = 0
         while counter < self.generations:
             print "Generation: {}".format(counter)
-            popultaion, f_state = popultaion.generate_population(maxfit)
+            popultaion = popultaion.generate_population(stype='tournament')
             print "________________________________________________________________"
-            if f_state:
-                break
             counter += 1
         # Find best chromosome in population
         fitness_at_list = np.array([ch.fitness_attrs for ch in popultaion.species])
@@ -265,6 +357,6 @@ class OptiGen(object):
 
 if __name__ == '__main__':
     # define folder destination
-    test_image = cv2.imread('../data/road.jpg', 1)
-    op = OptiGen(200)
-    op.predict(test_image, maxfit=_MAXFITNESS)
+    test_image = cv2.imread('../data/desert_2.jpg', 1)
+    op = OptiGen(700)
+    op.predict(test_image)

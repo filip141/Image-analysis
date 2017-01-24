@@ -83,6 +83,7 @@ def prepare_dataset(path):
         y_pred.append(test_clf.predict([pred_vec]))
     print "Confusion Matrix"
     print confusion_matrix(y_test, y_pred)
+    print test_clf.score(X_test, y_test)
     # Learn with full set
     print "Training using full dataset"
     clf = svm.SVC(gamma=0.001, C=100, probability=True)

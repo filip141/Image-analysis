@@ -117,13 +117,18 @@ def extract_descriptors(n_image, dominant_col=8, c_param=0.85, saveToJSON=False,
 def plot(image, descriptors, descriptions, mean=True):
     clusters = np.array(descriptors['clusters'])
     segments = descriptors['segments']
-    for clust_idx in segments:
-        cl_desc = descriptions[clust_idx]
-        ng_mask = clusters == clust_idx
-        if mean:
+    # Take mean
+    if mean:
+        for clust_idx in segments:
+            cl_desc = descriptions[clust_idx]
+            ng_mask = clusters == clust_idx
             clust_img = image[ng_mask]
             im_mean = np.sum(clust_img, axis=0) / clust_img.shape[0]
             image[ng_mask] = im_mean
+    # Plot names
+    for clust_idx in segments:
+        cl_desc = descriptions[clust_idx]
+        ng_mask = clusters == clust_idx
         cluster_idx = np.transpose(np.nonzero(ng_mask))
         if cluster_idx.size != 0:
             cntr = cv2.findContours((1 * ng_mask).astype(np.uint8).copy(),
@@ -134,6 +139,7 @@ def plot(image, descriptors, descriptions, mean=True):
             c_point = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
             cv2.circle(image, c_point, 2, (0, 0, 255), -1)
             cv2.putText(image, cl_desc, c_point, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+    plt.figure()
     plt.imshow(image)
     plt.show()
     print "Image ploted."
