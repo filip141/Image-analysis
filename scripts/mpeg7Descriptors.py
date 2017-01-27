@@ -224,8 +224,8 @@ class MPEG7Descriptors(object):
                     new_col = np.sum(img_col, axis=0) / len(img_col)
                 else:
                     new_px = [int(image_y), int(image_x)]
-                    new_px[0] = new_px[0] if new_px[0] <= height else height
-                    new_px[1] = new_px[1] if new_px[1] <= width else width
+                    new_px[0] = new_px[0] if new_px[0] <= height else height - 1
+                    new_px[1] = new_px[1] if new_px[1] <= width else width - 1
                     new_col = pol_image[new_px[0], new_px[1]]
                 blank_image[y_a, x_a] = new_col
         return blank_image
@@ -366,7 +366,7 @@ class MPEG7Descriptors(object):
 
 if __name__ == '__main__':
     default_wres = 320
-    test_image = cv2.imread('../data/road.jpg', 1)
+    test_image = cv2.imread('../data/circle.jpg', 1)
     im_res = test_image.shape[:-1]
     factor = im_res[0] / float(im_res[1])
     n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
@@ -386,7 +386,8 @@ if __name__ == '__main__':
     n_clusters = concat_params[0]
     edge_mst = concat_params[1]
     mpeg = MPEG7Descriptors(n_clusters, n_image)
-    n_img = mpeg.mpeg7_region_shape()
-    # cv2.imshow('contours1', n_img)
+
+    n_img = mpeg.radon_feature_extract(cv2.cvtColor(n_image, cv2.COLOR_BGR2GRAY))
+    # cv2.imshow('contours1', n_image)
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()

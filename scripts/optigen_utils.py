@@ -114,7 +114,7 @@ def extract_descriptors(n_image, dominant_col=8, c_param=0.85, saveToJSON=False,
     return result
 
 
-def plot(image, descriptors, descriptions, mean=True):
+def plot(image, descriptors, descriptions, mean=True, save2File=True):
     clusters = np.array(descriptors['clusters'])
     segments = descriptors['segments']
     # Take mean
@@ -139,7 +139,15 @@ def plot(image, descriptors, descriptions, mean=True):
             c_point = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
             cv2.circle(image, c_point, 2, (0, 0, 255), -1)
             cv2.putText(image, cl_desc, c_point, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-    plt.figure()
+
+    # Save figure
+    py_figure = plt.gcf()
+    figures_path = os.path.join(dir_path, "data", "figures")
+    if not os.path.isdir(figures_path):
+        os.mkdir(figures_path)
+    plt_file_path = os.path.join(figures_path, "image_{}.png".format(os.getpid()))
     plt.imshow(image)
-    plt.show()
+    plt.draw()
+    plt.show(block=(not save2File))
+    py_figure.savefig(plt_file_path)
     print "Image ploted."

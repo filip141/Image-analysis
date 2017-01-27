@@ -204,7 +204,7 @@ class RAGSegmentation(object):
 
 if __name__ == '__main__':
     default_wres = 320
-    test_image = cv2.imread('../data/road.jpg', 1)
+    test_image = cv2.imread('../data/bird_2.jpg', 1)
     im_res = test_image.shape[:-1]
     factor = im_res[0] / float(im_res[1])
     n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))

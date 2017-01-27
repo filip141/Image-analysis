@@ -1,7 +1,10 @@
+import argparse
 import os
 import json
+import warnings
 import numpy as np
 
+warnings.filterwarnings("ignore")
 side2id = {"E": 0, "N": 1, "NE": 2, "NW": 3, "S": 4, "SE": 5, "SW": 6, "W": 7}
 prohibited_class = ['nk', 'bc', 'sie']
 __directions = 8
@@ -55,5 +58,15 @@ def prepare_spatial(path):
 
 
 if __name__ == '__main__':
-    print "Reading Data from files..."
-    prepare_spatial("../data/descriptors")
+        # Script description
+    description = 'Script from Image-analysis package to create spatial relations matrix\n'
+
+    # Set command line arguments
+    parser = argparse.ArgumentParser(description)
+    parser.add_argument('-ph', '--path', dest='path', action='store', default="../data/base")
+    args = parser.parse_args()
+
+    data_path = args.path
+
+    print "Reading Spatial Data from files..."
+    prepare_spatial(data_path)

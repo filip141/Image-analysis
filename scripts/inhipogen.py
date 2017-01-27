@@ -2,6 +2,7 @@ import os
 import csv
 import json
 import copy
+import argparse
 import numpy as np
 from sklearn import svm
 from sklearn.externals import joblib
@@ -102,5 +103,17 @@ def prepare_dataset(path):
 
 
 if __name__ == '__main__':
+
+    # Script description
+    description = 'Script from Image-analysis package to train SVM classifier for initial hypothesis\n' \
+                  'Initial hypothesis is used in genetic algorithm to evaluate chromosome fitness.'
+
+    # Set command line arguments
+    parser = argparse.ArgumentParser(description)
+    parser.add_argument('-ph', '--path', dest='path', action='store', default="../data/base")
+    args = parser.parse_args()
+
+    data_path = args.path
+
     print "Reading Data from files..."
-    prepare_dataset("../data/descriptors")
+    prepare_dataset(data_path)

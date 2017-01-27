@@ -1,6 +1,7 @@
 import os
 import cv2
 import random
+import argparse
 import warnings
 import numpy as np
 from sklearn import svm
@@ -11,10 +12,11 @@ from optigen_utils import prepare_image, extract_descriptors, plot
 
 
 plt.ion()
+py_figure = plt.figure()
 best_history = []
 worst_history = []
 warnings.filterwarnings("ignore")
-prohibited_class = ['nk', 'bc', 'sie']
+prohibited_class = ['nk', 'bc', 'sie', 'animal', 'human', 'paint', 'band']
 descriptor_dir = "classifier"
 dir_path = os.path.dirname(os.path.realpath(__file__))
 dir_path = os.path.split(dir_path)[0]
@@ -230,18 +232,26 @@ class Population(object):
     def generate_population_tournament(self, show_best=True):
         # get fitnesses list and normalise
         fitness_at_list = np.array([ch.fitness_attrs for ch in self.species])
-        fitness_at_list = ((fitness_at_list - np.mean(fitness_at_list, axis=0)) / np.std(fitness_at_list, axis=0))
+        max_min_inf = np.sum(fitness_at_list, axis=1)
+        max_chromosome = np.max(max_min_inf)
+        min_chromosome = np.min(max_min_inf)
+        fitness_std = np.std(fitness_at_list, axis=0)
+        fitness_at_list = ((fitness_at_list - np.mean(fitness_at_list, axis=0)) / fitness_std)
         fitness_at_list = fitness_at_list + np.abs(np.min(fitness_at_list, axis=0))
         fitness_at_list = np.sum(fitness_at_list * [Chromosome.alpha, 1 - Chromosome.alpha], axis=1)
 
-        max_chromosome = np.max(fitness_at_list)
         if show_best:
-            min_chromosome = np.min(fitness_at_list)
             best_history.append(max_chromosome)
             worst_history.append(min_chromosome)
             plt.scatter(len(best_history) - 1, max_chromosome, label="max")
             plt.scatter(len(worst_history) - 1, min_chromosome, label="min", color='red')
             plt.show()
+            # Save figure
+            figures_path = os.path.join(dir_path, "data", "figures")
+            if not os.path.isdir(figures_path):
+                os.mkdir(figures_path)
+            plt_file_path = os.path.join(figures_path, "figure_{}.png".format(os.getpid()))
+            py_figure.savefig(plt_file_path)
             plt.pause(0.05)
 
         # Calculate probabilities
@@ -251,6 +261,7 @@ class Population(object):
 
         print "Overall Population Rate: {}".format(fitness_sum)
         print "Max Chromosome: {}".format(max_chromosome)
+        print "Max Chromosome x group std: {}".format(max_chromosome * np.sum(fitness_std))
 
         # Create new population
         pop_half_num = int(len(fitness_at_list)) / 2
@@ -304,9 +315,11 @@ class Population(object):
 
 class OptiGen(object):
 
-    def __init__(self, generations, size=200, crossover=0.7, mutation=0.008):
-        # ## Define Genetic Algoritm properties
+    def __init__(self, generations, size=200, crossover=0.7, mutation=0.008, show_best=True, save2File=True):
+        # ## Define Genetic Algorithm properties
         self.size = size
+        self.show_best = show_best
+        self.save2File = save2File
         self.generations = generations
         self.crossover = crossover
         self.mutation = mutation
@@ -331,7 +344,7 @@ class OptiGen(object):
         counter = 0
         while counter < self.generations:
             print "Generation: {}".format(counter)
-            popultaion = popultaion.generate_population(stype='tournament')
+            popultaion = popultaion.generate_population(stype='tournament', show_best=self.show_best)
             print "________________________________________________________________"
             counter += 1
         # Find best chromosome in population
@@ -339,7 +352,7 @@ class OptiGen(object):
         fitness_at_list = np.sum(fitness_at_list * [Chromosome.alpha, 1 - Chromosome.alpha], axis=1)
         est_classify = popultaion.species[np.argmax(fitness_at_list)].classify
         descriptions = [self.id2name[x] for x in est_classify]
-        plot(image_rgb, descriptors, descriptions)
+        plot(image_rgb, descriptors, descriptions, save2File=self.save2File)
 
     @staticmethod
     def prepare_svm(path):
@@ -356,7 +369,24 @@ class OptiGen(object):
         return name2id, rel_mat
 
 if __name__ == '__main__':
+    # Script description
+    description = 'Script from Image-analysis package optimise segment description mapping.' \
+                  'Script using genetic algorithm to find best mapping for image segments.'
+
+    # Set command line arguments
+    parser = argparse.ArgumentParser(description)
+    parser.add_argument('-i', '--input', dest='input', action='store')
+    parser.add_argument('-n', '--population', dest='popul', action='store', default="200")
+    parser.add_argument('-g', '--generations', dest='gen', action='store', default="200")
+    parser.add_argument('-m', '--mutation', dest='mutation', action='store', default="0.008")
+    parser.add_argument('-c', '--crossover', dest='crossover', action='store', default="0.7")
+    parser.add_argument('--show', dest='show', action='store_true')
+    parser.add_argument('--save', dest='save', action='store_true')
+    args = parser.parse_args()
+    input_file = args.input
+
     # define folder destination
-    test_image = cv2.imread('../data/desert_2.jpg', 1)
-    op = OptiGen(700)
+    test_image = cv2.imread(input_file, 1)
+    op = OptiGen(args.gen, size=int(args.popul), mutation=float(args.mutation), crossover=float(args.crossover),
+                 show_best=args.show, save2File=args.save)
     op.predict(test_image)

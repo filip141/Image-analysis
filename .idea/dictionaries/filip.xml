@@ -3,6 +3,7 @@
     <words>
       <w>attrs</w>
       <w>chrom</w>
+      <w>chromo</w>
       <w>clust</w>
       <w>cntr</w>
       <w>cpts</w>
@@ -15,10 +16,12 @@
       <w>kruskal</w>
       <w>mparent</w>
       <w>mpeg</w>
+      <w>optigen</w>
       <w>pred</w>
       <w>rels</w>
       <w>sinogram</w>
       <w>slic</w>
+      <w>stdout</w>
       <w>vert</w>
     </words>
   </dictionary>

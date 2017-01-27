@@ -2,6 +2,7 @@ import os
 import cv2
 import json
 import warnings
+import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from rag_segmentation import RAGSegmentation
@@ -26,7 +27,7 @@ def generate_image_json(image, json_name, dominant_col=8):
     # Resize image
     im_res = image.shape[:-1]
     factor = im_res[0] / float(im_res[1])
-    n_image = cv2.resize(test_image, (default_wres, int(default_wres * factor)))
+    n_image = cv2.resize(image, (default_wres, int(default_wres * factor)))
     # Image Segmentation
     rag = RAGSegmentation(n_image, slic_clust_num=200, slic_cw=15, median_blur=7)
     t_clusters = rag.run_slic()
@@ -80,7 +81,17 @@ def generate_image_json(image, json_name, dominant_col=8):
 
 
 if __name__ == '__main__':
-    base_dir = '../data/base'
+    # Script description
+    description = 'Script from Image-analysis package to prepare your database\n' \
+                  'Preparing database is process by which low level descriptors and spatial relations ' \
+                  'are extracted from base images. Training set should contain images with examined scene.'
+
+    # Set command line arguments
+    parser = argparse.ArgumentParser(description)
+    parser.add_argument('-ph', '--path', dest='path', action='store', default="../data/base")
+    args = parser.parse_args()
+
+    base_dir = args.path
     files_in_dir = os.listdir(base_dir)
     for img_file in files_in_dir:
         print "Segmentng file: {}".format(img_file)
